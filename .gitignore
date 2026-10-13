@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment variables and sensitive files
+.env
+.env.local
+.env.*.local
+
+# Build outputs and Vite caches
+dist/
+.vite/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.history/
+.DS_Store
+Thumbs.db
