@@ -19,3 +19,26 @@ INSERT INTO student_enrollments (student_identifier, course_code) VALUES
 ('s12345678', 'CECS 457'),
 ('s12345678', 'CECS 450'),
 ('s12345678', 'CECS 491A');
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_code TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_code_expires TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_type VARCHAR(20) DEFAULT 'totp';
+
+-- Ensure users table supports dual MFA types and Twilio SMS verification
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_type VARCHAR(20) DEFAULT 'totp';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_code TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_code_expires TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS user_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    course_code TEXT NOT NULL,
+    time_window TEXT NOT NULL,
+    location TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_schedules_user_id ON user_schedules(user_id);

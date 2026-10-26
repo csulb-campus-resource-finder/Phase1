@@ -1,18 +1,17 @@
 # Dependencies
 node_modules/
 
-# Environment variables and sensitive files
+# Environment variables & Secrets
 .env
-.env.local
-.env.*.local
 
-# Build outputs and Vite caches
+# Build outputs
 dist/
-.vite/
+build/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+# IDE & Local History
 .history/
+.vscode/
+
+# OS generated files
 .DS_Store
 Thumbs.db

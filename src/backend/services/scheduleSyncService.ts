@@ -1,7 +1,6 @@
 import * as cheerio from 'cheerio';
 import { Pool } from 'pg';
 
-// Initialize NeonDB connection pool using your environment variables
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.NEON_DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -16,7 +15,7 @@ export const ScheduleSyncService = {
       if (!response.ok) {
         throw new Error(`Failed to fetch CSULB catalog: ${response.statusText}`);
       }
-
+      
       const html = await response.text();
       const $ = cheerio.load(html);
       
@@ -30,7 +29,7 @@ export const ScheduleSyncService = {
         room: string;
       }> = [];
 
-      // Parse university course table rows (adjust selectors based on university markup structure)
+      // Parse university course table rows (adjust CSS selectors based on university markup structure)
       $('tr.classRow, tr').each((_, element) => {
         const code = $(element).find('.courseCode, td:nth-child(1)').text().trim();
         const name = $(element).find('.courseTitle, td:nth-child(2)').text().trim();
@@ -42,22 +41,17 @@ export const ScheduleSyncService = {
           const days = daysRaw ? daysRaw.split(',').map(d => d.trim()) : ['Tue', 'Thu'];
           const [startTime = '09:30', endTime = '10:45'] = timeRaw.split('-').map(t => t.trim());
           const [building = 'ECS', room = '311'] = locationRaw.split(' ');
-
+          
           scrapedCourses.push({ code, name: name || 'CSULB Course', days, startTime, endTime, building, room });
         }
       });
 
-      // Fallback seed data if the HTML structure shifts or blocks direct scraping
       if (scrapedCourses.length === 0) {
-        scrapedCourses.push(
-          { code: 'CECS 323', name: 'Database Fundamentals', days: ['Tue', 'Thu'], startTime: '09:30', endTime: '10:45', building: 'ECS', room: '311' },
-          { code: 'CECS 457', name: 'Applied Machine Learning', days: ['Mon', 'Wed'], startTime: '11:00', endTime: '12:15', building: 'VEC', room: '115' },
-          { code: 'CECS 450', name: 'Data Visualization', days: ['Tue', 'Thu'], startTime: '12:30', endTime: '13:45', building: 'ECS', room: '412' },
-          { code: 'CECS 491A', name: 'Computer Science Senior Project I', days: ['Mon', 'Wed'], startTime: '14:00', endTime: '15:15', building: 'ECS', room: '304' }
-        );
+        console.warn('Scraper found 0 courses, check HTML selectors or network restrictions.');
+        return { success: false, count: 0 };
       }
 
-      // Upsert parsed courses into NeonDB
+      // Upsert parsed courses into PostgreSQL / NeonDB
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -65,7 +59,8 @@ export const ScheduleSyncService = {
           await client.query(
             `INSERT INTO cached_courses (course_code, course_name, days, start_time, end_time, building, room, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-             ON CONFLICT (id) DO NOTHING;`,
+             ON CONFLICT (course_code) DO UPDATE 
+             SET course_name = EXCLUDED.course_name, days = EXCLUDED.days, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, building = EXCLUDED.building, room = EXCLUDED.room, updated_at = NOW();`,
             [course.code, course.name, course.days, course.startTime, course.endTime, course.building, course.room]
           );
         }
