@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "server": "tsx --env-file=.env src/server.ts",
+    "server": "tsx -r dotenv/config src/server.ts",
     "client": "vite",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "tsc"
+    "build": "vite build",
+    "start": "tsx -r dotenv/config src/server.ts"
   },
   "dependencies": {
     "@types/multer": "^2.3.0",
@@ -25,6 +26,7 @@
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "speakeasy": "^2.0.0",
     "tesseract.js": "^7.0.0",
     "twilio": "^6.2.0"
   },
@@ -38,6 +40,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@types/speakeasy": "^2.0.10",
     "@vitejs/plugin-react": "^6.1.2",
     "ts-node": "^10.9.2",
     "tsx": "^4.7.0",

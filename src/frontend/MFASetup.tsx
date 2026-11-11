@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 
 // Defines a TypeScript interface for the props accepted by the MFASetup component.
 interface MFASetupProps {
-  token: string;                          // JWT authentication token passed from the parent component
+  token: string;                        // JWT authentication token passed from the parent component
   onSetupSuccess: (newToken: string) => void; // Callback function triggered upon successful MFA setup
 }
 
@@ -23,8 +23,8 @@ export default function MFASetup({ token, onSetupSuccess }: MFASetupProps) {
     // Sets loading state to true while the request is in flight.
     setLoading(true);
     try {
-      // Sends a POST request to the backend MFA setup endpoint with the Bearer token.
-      const response = await fetch('http://localhost:3001/api/auth/mfa/setup', {
+      // Sends a POST request to the backend MFA setup endpoint using a relative path.
+      const response = await fetch('/api/auth/mfa/setup', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -64,8 +64,8 @@ export default function MFASetup({ token, onSetupSuccess }: MFASetupProps) {
     // Sets loading state to true during verification.
     setLoading(true);
     try {
-      // Sends a POST request to verify the code against the pending MFA secret.
-      const response = await fetch('http://localhost:3001/api/auth/mfa/verify-setup', {
+      // Sends a POST request to verify the code using a relative path.
+      const response = await fetch('/api/auth/mfa/verify-setup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

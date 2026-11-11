@@ -10,12 +10,12 @@ import axios from 'axios';
 // Initializes and exports an Express Router instance specifically for schedule routes.
 export const scheduleRouter = Router();
 
-// Configures and initializes a new PostgreSQL connection pool.
+// Configures and initializes a new PostgreSQL connection pool for NeonDB (with cloud SSL support).
 const pool = new Pool({
-  // Uses the DATABASE_URL environment variable, or falls back to a default local connection string.
-  connectionString: process.env.DATABASE_URL || 'postgresql://csulb_admin:12162004Hm_runs20@localhost:5432/csulb_platform',
-  // Enables SSL with unauthorized certificate rejection disabled if running in a production environment.
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Defines a TypeScript interface representing the structure of a Course object.

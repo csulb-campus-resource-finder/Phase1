@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 // Imports the built-in path module for handling file and directory paths.
 import path from 'path';
+import { fileURLToPath } from 'url';
 // Imports the Pool class from node-postgres for managing PostgreSQL database connections.
 import { Pool } from 'pg';
 // Imports multer for handling multipart/form-data file uploads (OCR images & .ics files).
@@ -23,6 +24,10 @@ import { authRouter } from './backend/authRouter';
 import { mfaRouter } from './auth/mfaRouter';
 import jwt from 'jsonwebtoken';
 
+// Define __dirname equivalent for Node.js 18 ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Initializes the Express application instance.
 const app = express();
 // Sets the server port to the environment variable PORT or defaults to 3001.
@@ -38,12 +43,15 @@ app.use(cors({
 }));
 // Configures Express to parse incoming JSON request bodies (increased limit to 10MB for base64 avatars).
 app.use(express.json({ limit: '10mb' }));
-// Serves static files from the public directory using Node's import.meta.dirname.
-app.use(express.static(path.join(import.meta.dirname, '../public')));
+// Serves static files from the public directory using __dirname.
+app.use(express.static(path.join(__dirname, '../public')));
 
-// Configures the PostgreSQL database connection pool with local credentials or environment config.
+// Configures the PostgreSQL database connection pool for NeonDB (with cloud SSL support).
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://csulb_admin:12162004Hm_runs20@localhost:5432/csulb_platform',
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Asynchronous function to auto-initialize database tables and seed initial records on server startup.
@@ -139,14 +147,9 @@ async function initializeDatabase() {
 
     console.log('✅ Database tables created and all default records seeded successfully!');
   } catch (err) {
-    console.warn('⚠️ Database auto-init warning (check if Docker postgres is running):', err);
+    console.warn('⚠️ Database auto-init warning:', err);
   }
 }
-
-// Defines a basic root health-check endpoint.
-app.get('/', (req, res) => {
-  res.send('Campus Resource Finder Phase 1 API is running!');
-});
 
 // Helper to extract user identifier from JWT Authorization header
 function getUserEmailFromReq(req: any): string {
@@ -462,6 +465,16 @@ app.get('/api/emergency-contacts', (req, res) => {
     escortService: '562-985-4101',
     healthCenter: '562-985-4141'
   });
+});
+
+// ----------------------------------------------------
+// SERVE FRONTEND (Vite Production Build) - MUST BE AFTER API ROUTES
+// ----------------------------------------------------
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// Fallback to index.html for client-side routing (React Router)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 // Initializes the database schema and seed data before starting the Express server.
