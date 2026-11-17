@@ -6,9 +6,14 @@ import dotenv from 'dotenv';
 // Loads environment variables from the local .env file into process.env.
 dotenv.config();
 
-// Creates and exports a new PostgreSQL connection pool instance using the DATABASE_URL connection string.
+
+
+// Configure pool with proper SSL settings for NeonDB
 export const db = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false // Required for secure NeonDB TLS handshakes
+  }
 });
 
 // Listens for the 'connect' event emitted when a new client connects to the PostgreSQL database.

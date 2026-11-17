@@ -5,6 +5,7 @@ interface FloorLevel {
   name: string;
   description: string;
   amenities: string[];
+  imageUrl?: string; // 👈 Added image property for each floor
 }
 
 interface BuildingIndoorData {
@@ -20,26 +21,28 @@ const campusBuildings: BuildingIndoorData[] = [
   {
     buildingId: 'ecs',
     buildingName: 'Engineering & Computer Science (ECS)',
-    // Added embedded mode parameter to keep navigation locked within the iframe
     tourEmbedUrl: 'https://map.concept3d.com/?id=1314&embedded=true#!ct/33215,33216?s/ECS',
     floors: [
       {
         level: 1,
         name: 'First Floor - CECS Labs & Robotics Arena',
         description: 'Home to main computer science student labs, robotics workspace, and department advising.',
-        amenities: ['CECS Open Lab', 'Robotics Arena', 'Department Advising', 'Project Workshop']
+        amenities: ['CECS Open Lab', 'Robotics Arena', 'Department Advising', 'Project Workshop'],
+        imageUrl: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 2,
         name: 'Second Floor - Lecture Halls & Faculty Offices',
         description: 'Large auditorium-style classrooms (ECS-125, ECS-128) and CECS faculty office suites.',
-        amenities: ['Lecture Hall ECS-125', 'Lecture Hall ECS-128', 'Faculty Offices', 'Study Atrium']
+        amenities: ['Lecture Hall ECS-125', 'Lecture Hall ECS-128', 'Faculty Offices', 'Study Atrium'],
+        imageUrl: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 3,
         name: 'Third Floor - Senior Design & Advanced AI/Systems Labs',
         description: 'Dedicated capstone project workspace, hardware labs, and advanced computing workstations.',
-        amenities: ['Senior Capstone Studio', 'Hardware Integration Lab', 'AI Research Corner']
+        amenities: ['Senior Capstone Studio', 'Hardware Integration Lab', 'AI Research Corner'],
+        imageUrl: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   },
@@ -52,19 +55,22 @@ const campusBuildings: BuildingIndoorData[] = [
         level: 1,
         name: 'First Floor - Science Atrium & Lecture Halls',
         description: 'Large-capacity lecture halls, introductory biology labs, and the Science Success Center.',
-        amenities: ['Science Success Center', 'Lecture Hall HSCI-100', 'Intro Bio Labs']
+        amenities: ['Science Success Center', 'Lecture Hall HSCI-100', 'Intro Bio Labs'],
+        imageUrl: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 2,
         name: 'Second Floor - Chemistry & Biochemistry Labs',
         description: 'Wet chemistry teaching laboratories, instrumentation rooms, and stockroom.',
-        amenities: ['Organic Chem Lab', 'Biochem Prep Room', 'Instrumentation Suite']
+        amenities: ['Organic Chem Lab', 'Biochem Prep Room', 'Instrumentation Suite'],
+        imageUrl: 'https://images.unsplash.com/photo-1576086213369-97a306d36557?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 3,
         name: 'Third Floor - Physics & Astronomy Research',
         description: 'Advanced physics labs, faculty research offices, and rooftop observatory access corridor.',
-        amenities: ['Physics Labs', 'Optics Suite', 'Observatory Access']
+        amenities: ['Physics Labs', 'Optics Suite', 'Observatory Access'],
+        imageUrl: 'https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   },
@@ -77,31 +83,36 @@ const campusBuildings: BuildingIndoorData[] = [
         level: 1,
         name: 'First Floor - Spidell Tech Center & Collaborative Hub',
         description: 'Features 24/7 computer labs, printing stations, tech support desk, and collaborative group study areas.',
-        amenities: ['Computer Lab', 'Printing Stations', 'Tech Help Desk', 'Group Study Tables']
+        amenities: ['Computer Lab', 'Printing Stations', 'Tech Help Desk', 'Group Study Tables'],
+        imageUrl: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 2,
         name: 'Second Floor - Reference & Research Services',
         description: 'Main service desk, research help, periodicals, and open seating carrels.',
-        amenities: ['Research Assistance Desk', 'Current Periodicals', 'Quiet Carrels']
+        amenities: ['Research Assistance Desk', 'Current Periodicals', 'Quiet Carrels'],
+        imageUrl: 'https://images.unsplash.com/photo-1568667256549-094345857637?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 3,
         name: 'Third Floor - General Stacks & Quiet Study',
         description: 'General book collection (Call numbers H–P), individual study carrels, and power outlets.',
-        amenities: ['Book Stacks H-P', 'Individual Carrels', 'Power Stations']
+        amenities: ['Book Stacks H-P', 'Individual Carrels', 'Power Stations'],
+        imageUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 4,
         name: 'Fourth Floor - Silent Study & Special Collections',
         description: 'Strict quiet study zone, archives, and special collections reading room.',
-        amenities: ['Silent Study Zone', 'Special Collections', 'Microfilm Readers']
+        amenities: ['Silent Study Zone', 'Special Collections', 'Microfilm Readers'],
+        imageUrl: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 5,
         name: 'Fifth Floor - Panoramic Study Lounge & Faculty Carrels',
         description: 'Scenic views of campus and Long Beach, graduate study rooms, and faculty research carrels.',
-        amenities: ['Graduate Study Rooms', 'Panoramic Lounge', 'Faculty Carrels']
+        amenities: ['Graduate Study Rooms', 'Panoramic Lounge', 'Faculty Carrels'],
+        imageUrl: 'https://images.unsplash.com/photo-1541829070764-84a7d30dd3f3?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   },
@@ -116,7 +127,8 @@ const campusBuildings: BuildingIndoorData[] = [
         level: 1,
         name: 'USU Building - Active Construction Area',
         description: 'The main union is undergoing redevelopment. Explore PH1 for temporary service locations.',
-        amenities: ['Relocated Services in PH1', 'Temporary Student Lounges']
+        amenities: ['Relocated Services in PH1', 'Temporary Student Lounges'],
+        imageUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb18f1f1d?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   },
@@ -129,13 +141,15 @@ const campusBuildings: BuildingIndoorData[] = [
         level: 1,
         name: 'First Floor - Lecture Halls & Clinic Entrance',
         description: 'Large lecture spaces (PSY-150), departmental advising, and community counseling clinic reception.',
-        amenities: ['Lecture Hall PSY-150', 'Advising Office', 'Clinic Reception']
+        amenities: ['Lecture Hall PSY-150', 'Advising Office', 'Clinic Reception'],
+        imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 2,
         name: 'Second Floor - Behavioral Research & Computer Labs',
         description: 'Psychology research suites, behavioral observation rooms, and statistical computing labs.',
-        amenities: ['Behavioral Lab', 'SPSS Computing Room', 'Faculty Offices']
+        amenities: ['Behavioral Lab', 'SPSS Computing Room', 'Faculty Offices'],
+        imageUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   },
@@ -148,19 +162,22 @@ const campusBuildings: BuildingIndoorData[] = [
         level: 1,
         name: 'First Floor - Writing Center & Classrooms',
         description: 'Home to the campus Writing Center, collaborative seminar rooms, and open courtyards.',
-        amenities: ['CSULB Writing Center', 'Seminar Rooms', 'Courtyard Seating']
+        amenities: ['CSULB Writing Center', 'Seminar Rooms', 'Courtyard Seating'],
+        imageUrl: 'https://images.unsplash.com/photo-1517502884422-41eaead166d4?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 2,
         name: 'Second Floor - Humanities & Department Offices',
         description: 'Comparative literature, linguistics, and modern languages department suites.',
-        amenities: ['Department of Linguistics', 'Faculty Offices', 'Discussion Labs']
+        amenities: ['Department of Linguistics', 'Faculty Offices', 'Discussion Labs'],
+        imageUrl: 'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=1000&q=80'
       },
       {
         level: 3,
         name: 'Third Floor - Upper-Division Classrooms & Study Nooks',
         description: 'Advanced language seminar rooms and quiet hallway study alcoves.',
-        amenities: ['Language Seminar Rooms', 'Study Alcoves', 'PC Workstations']
+        amenities: ['Language Seminar Rooms', 'Study Alcoves', 'PC Workstations'],
+        imageUrl: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1000&q=80'
       }
     ]
   }
@@ -290,10 +307,21 @@ export const IndoorNavigator: React.FC = () => {
               ))}
             </div>
 
-            <div style={{ background: '#FAF9F5', border: '2px dashed #CBD5E1', borderRadius: '1rem', height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px' }}>
-              <span style={{ fontSize: '15px', fontWeight: '800', color: '#475569' }}>
-                🗺️ [Floor {currentFloor.level} Schematic Layout: {currentFloor.name}]
-              </span>
+            {/* Floor Image Display */}
+            <div style={{ borderRadius: '1rem', overflow: 'hidden', border: '1.5px solid #CBD5E1', height: '320px', width: '100%', background: '#F8FAFC', position: 'relative' }}>
+              {currentFloor.imageUrl ? (
+                <img
+                  src={currentFloor.imageUrl}
+                  alt={currentFloor.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '20px' }}>
+                  <span style={{ fontSize: '15px', fontWeight: '800', color: '#475569' }}>
+                    🗺️ [Floor {currentFloor.level} Schematic Layout: {currentFloor.name}]
+                  </span>
+                </div>
+              )}
             </div>
           </>
         ) : (

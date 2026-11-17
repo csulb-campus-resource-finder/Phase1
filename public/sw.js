@@ -1,34 +1,33 @@
-// Defines a constant holding the unique version name for the browser cache storage.
-const CACHE_NAME = 'csulb-phase1-cache-v2';
-
-// Declares an array of core static app assets to pre-cache for offline use.
-const OFFLINE_ASSETS = [
-  '/',                     // Root homepage route
-  '/index.html'            // Main HTML file
+// public/sw.js - Campus Resource Finder Service Worker
+const CACHE_NAME = 'beach-perks-pwa-v1';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/src/main.tsx',
+  '/favicon.ico',
+  '/manifest.json'
 ];
 
-// Listens for the service worker's 'install' event, which triggers when the browser installs it.
+// Install Event: Cache core static assets
 self.addEventListener('install', (event) => {
-  // Tells the browser to wait until all core offline assets are successfully cached.
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(OFFLINE_ASSETS);
-    }).catch((err) => {
-      console.warn('⚠️ Pre-caching static assets warning:', err);
+      console.log('[Service Worker] Pre-caching offline shell assets');
+      return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  // Forces the waiting service worker to become the active service worker immediately.
   self.skipWaiting();
 });
 
-// Listens for the 'activate' event, triggered when the service worker successfully initializes.
+// Activate Event: Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log('[Service Worker] Deleting old cache:', cache);
+            return caches.delete(cache);
           }
         })
       );
@@ -37,54 +36,47 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Listens for all network 'fetch' requests made by the web application.
+// Fetch Event: Network-first for API requests, Cache-first for static assets
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Only handle standard GET requests
-  if (event.request.method !== 'GET' || !url.protocol.startsWith('http')) {
-    return;
-  }
-
-  // Security check: Never cache API routes (auth, schedules, profiles, etc.)
+  // If request is to API backend
   if (url.pathname.startsWith('/api/')) {
+    // Only cache GET requests (Browser Cache API does not support POST, PUT, or DELETE caching)
+    if (event.request.method === 'GET') {
+      event.respondWith(
+        fetch(event.request)
+          .then((response) => {
+            // Clone and cache successful API responses for offline viewing
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+            return response;
+          })
+          .catch(() => {
+            return caches.match(event.request).then((cachedResponse) => {
+              return cachedResponse || new Response(
+                JSON.stringify({ error: 'Offline mode: Data unavailable' }), 
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+            });
+          })
+      );
+    } else {
+      // For POST, PUT, DELETE requests, pass straight to the network without caching
+      event.respondWith(fetch(event.request));
+    }
+  } else {
+    // Static assets: Cache-first strategy
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return new Response(JSON.stringify({ error: 'Network error. Please check your connection.' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      })
-    );
-    return;
-  }
-
-  // Network-first strategy for static pages and assets with safe fallbacks
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
+      caches.match(event.request).then((cachedResponse) => {
+        return cachedResponse || fetch(event.request).catch(() => {
           if (event.request.mode === 'navigate') {
             return caches.match('/index.html');
           }
-          // Return a safe fallback response instead of undefined to prevent promise rejections
-          return new Response('Asset not found offline.', {
-            status: 404,
-            headers: { 'Content-Type': 'text/plain' }
-          });
         });
       })
-  );
+    );
+  }
 });

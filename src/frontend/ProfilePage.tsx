@@ -1,5 +1,5 @@
-// Imports React and hooks for state management and side effects.
-import React, { useState, useEffect } from 'react';
+// Imports React and hooks for managing state and side effects.
+import React, { useEffect, useState } from 'react';
 
 // Interface representing the enhanced user profile structure.
 interface UserProfile {
@@ -14,7 +14,12 @@ interface UserProfile {
   linkedinUrl: string;
 }
 
-export function ProfilePage() {
+// Interface for component props to notify App.tsx of profile updates
+interface ProfilePageProps {
+  onUpdate?: (updated: { name: string }) => void;
+}
+
+export function ProfilePage({ onUpdate }: ProfilePageProps) {
   const [profile, setProfile] = useState<UserProfile>({
     name: '',
     email: '',
@@ -26,11 +31,18 @@ export function ProfilePage() {
     githubUrl: '',
     linkedinUrl: ''
   });
+  
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [uploadingAvatar, setUploadingAvatar] = useState<boolean>(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // State variables for password management
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [changingPassword, setChangingPassword] = useState<boolean>(false);
 
   // Fetch user profile data on component mount
   useEffect(() => {
@@ -116,6 +128,10 @@ export function ProfilePage() {
 
       if (res.ok) {
         setMessage('Profile updated successfully!');
+        // Trigger callback to update top navigation bar state instantly
+        if (onUpdate) {
+          onUpdate({ name: profile.name });
+        }
       } else {
         const errData = await res.json();
         throw new Error(errData.error || 'Failed to update profile.');
@@ -126,6 +142,54 @@ export function ProfilePage() {
       setSaving(false);
     }
   };
+
+  // Handle password change submission
+  // Handle password change submission
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+    setError(null);
+    setChangingPassword(true);
+
+    try {
+      const token = localStorage.getItem('sso_token');
+      const options: RequestInit = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ currentPassword, newPassword })
+      };
+
+      // Try /api/v1 first, then fallback to /api
+      let res = await fetch('/api/v1/auth/change-password', options);
+      if (res.status === 404) {
+        res = await fetch('/api/auth/change-password', options);
+      }
+
+      if (res.ok) {
+        setPasswordMessage('Password changed successfully!');
+        setCurrentPassword('');
+        setNewPassword('');
+      } else {
+        const text = await res.text();
+        let errorMsg = 'Failed to change password.';
+        try {
+          const errData = JSON.parse(text);
+          errorMsg = errData.error || errData.detail || errorMsg;
+        } catch {
+          errorMsg = `Backend route not found (${res.status}). Make sure /api/auth/change-password exists on the server.`;
+        }
+        throw new Error(errorMsg);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+  
 
   if (loading) {
     return <div style={{ padding: '20px', color: '#6B7280' }}>Loading profile...</div>;
@@ -167,13 +231,20 @@ export function ProfilePage() {
         </div>
       )}
 
+      {passwordMessage && (
+        <div style={{ background: '#ECFDF5', color: '#065F46', padding: '12px 16px', borderRadius: '0.75rem', fontSize: '14px', marginBottom: '20px', border: '1px solid #A7F3D0', fontWeight: '700' }}>
+          🔒 {passwordMessage}
+        </div>
+      )}
+
       {error && (
         <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '12px 16px', borderRadius: '0.75rem', fontSize: '14px', marginBottom: '20px', border: '1px solid #FCA5A5', fontWeight: '700' }}>
           ⚠️ {error}
         </div>
       )}
 
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      {/* Main Profile Form */}
+      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '18px', marginBottom: '32px' }}>
         <div>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: '#002B49', marginBottom: '6px' }}>Full Name</label>
           <input 
@@ -275,6 +346,45 @@ export function ProfilePage() {
           {saving ? 'Saving Profile...' : '💾 Save Profile Changes'}
         </button>
       </form>
+
+      {/* Password Management Section */}
+      <div style={{ borderTop: '2px solid #F3F4F6', paddingTop: '24px' }}>
+        <h3 style={{ margin: '0 0 6px', color: '#002B49', fontSize: '18px', fontWeight: '900' }}>Change Password</h3>
+        <p style={{ margin: '0 0 16px', color: '#6B7280', fontSize: '13px', fontWeight: '600' }}>Update your account password securely</p>
+
+        <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: '#002B49', marginBottom: '6px' }}>Current Password</label>
+            <input 
+              type="password" 
+              value={currentPassword} 
+              onChange={(e) => setCurrentPassword(e.target.value)} 
+              required 
+              style={{ width: '100%', padding: '12px 14px', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', fontSize: '15px', background: '#F9FAFB', boxSizing: 'border-box', fontWeight: '600', color: '#1F2937' }} 
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: '#002B49', marginBottom: '6px' }}>New Password</label>
+            <input 
+              type="password" 
+              value={newPassword} 
+              onChange={(e) => setNewPassword(e.target.value)} 
+              required 
+              style={{ width: '100%', padding: '12px 14px', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', fontSize: '15px', background: '#F9FAFB', boxSizing: 'border-box', fontWeight: '600', color: '#1F2937' }} 
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={changingPassword}
+            style={{ background: '#374151', color: '#ffffff', padding: '12px 20px', border: 'none', borderRadius: '0.75rem', cursor: 'pointer', fontWeight: '900', fontSize: '15px', marginTop: '4px' }}
+          >
+            {changingPassword ? 'Updating Password...' : '🔒 Update Password'}
+          </button>
+        </form>
+      </div>
+
     </div>
   );
 }

@@ -80,18 +80,15 @@ mfaRouter.post('/setup', async (req, res) => {
     }
     const user = userResult.rows[0];
 
-    // Generate secret for authenticator app
     const secret = speakeasy.generateSecret({
       name: `CSULB Campus Resource Finder (${user.email})`
     });
 
-    // Save pending secret to database
     await db.query(
       'UPDATE users SET pending_secret = $1 WHERE id = $2 OR email = $2',
       [secret.base32, user.id]
     );
 
-    // Generate QR code data URL
     const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url || '');
 
     return res.json({
@@ -130,11 +127,10 @@ mfaRouter.post('/verify-setup', async (req, res) => {
       return res.status(400).json({ error: 'No pending MFA setup found. Please generate QR code first.' });
     }
 
-    // Verify code against pending secret
     const verified = speakeasy.totp.verify({
       secret: user.pending_secret,
       encoding: 'base32',
-      token: code,
+      token: String(code || '').trim(),
       window: 1
     });
 
@@ -142,13 +138,11 @@ mfaRouter.post('/verify-setup', async (req, res) => {
       return res.status(400).json({ error: 'Invalid verification code. Please try again.' });
     }
 
-    // Move pending secret to active mfa_secret and enable mfa
     await db.query(
       'UPDATE users SET mfa_secret = pending_secret, pending_secret = NULL, mfa_enabled = TRUE WHERE id = $1 OR email = $1',
       [user.id]
     );
 
-    // Issue updated JWT token
     const newToken = jwt.sign(
       { id: user.id, email: user.email, name: user.name, role: user.role },
       process.env.JWT_SECRET || 'csulb-dev-secret-key-2026',
@@ -163,6 +157,67 @@ mfaRouter.post('/verify-setup', async (req, res) => {
   } catch (error) {
     console.error('MFA verify setup error:', error);
     return res.status(500).json({ error: 'Failed to verify MFA setup.' });
+  }
+});
+
+// 4. Endpoint to verify TOTP code during login (STRICT REJECTION)
+mfaRouter.post('/verify-login', async (req, res) => {
+  try {
+    const { code, email } = req.body;
+    console.log(`🔒 [MFA Login Verify] Received code: "${code}" for email: "${email || 'LIMIT 1 fallback'}"`);
+
+    let userQuery = 'SELECT * FROM users LIMIT 1';
+    let queryParams: any[] = [];
+    if (email) {
+      userQuery = 'SELECT * FROM users WHERE email = $1 OR id = $1';
+      queryParams = [email];
+    }
+
+    const userResult = await db.query(userQuery, queryParams);
+    if (userResult.rows.length === 0) {
+      console.log('❌ [MFA Login Verify] User not found in database.');
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    const user = userResult.rows[0];
+
+    if (!user.mfa_secret) {
+      console.log('❌ [MFA Login Verify] User has no mfa_secret configured.');
+      return res.status(400).json({ error: 'Authenticator app is not enabled for this account.' });
+    }
+
+    const cleanCode = String(code || '').trim();
+    const verified = speakeasy.totp.verify({
+      secret: user.mfa_secret,
+      encoding: 'base32',
+      token: cleanCode,
+      window: 1
+    });
+
+    console.log(`🔍 [MFA Login Verify] Speakeasy verification result: ${verified}`);
+
+    if (!verified) {
+      console.log('❌ [MFA Login Verify] Code REJECTED.');
+      return res.status(400).json({ error: 'Invalid authenticator code. Please try again.' });
+    }
+
+    console.log('✅ [MFA Login Verify] Code ACCEPTED. Issuing token.');
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      process.env.JWT_SECRET || 'csulb-dev-secret-key-2026',
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        email: user.email,
+        name: user.name || 'Nadhirah Michael-Ho'
+      }
+    });
+  } catch (error) {
+    console.error('MFA verify login error:', error);
+    return res.status(500).json({ error: 'Internal server error during MFA login verification.' });
   }
 });
 

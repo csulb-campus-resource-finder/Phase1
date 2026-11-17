@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 // Imports the LoginPortal component used for handling user sign-in interfaces.
 import { LoginPortal } from './LoginPortal';
+// Imports the LoginWith2FA component for handling secure 2FA sign-in.
+import { LoginWith2FA } from './LoginWith2FA';
 // Imports the CampusMap component for rendering the interactive campus map.
 import { CampusMap } from './CampusMap';
 // Imports the IndoorNavigator component for level-by-level indoor building floor plans.
@@ -18,6 +20,8 @@ import { ProfilePage } from './ProfilePage';
 import MFASetup from './MFASetup';
 // Imports the AboutPage component for displaying the campus resource finder overview.
 import { AboutPage } from './AboutPage';
+// Imports the AuthAndProfileModal component for login, registration, and role management.
+import { AuthAndProfileModal } from './AuthandProfileModal';
 
 // Dynamically resolves and creates URL references to asset files.
 const logoImage = new URL('../logo.png', import.meta.url).href;
@@ -36,6 +40,12 @@ interface ICSClassItem {
   end_time: string;
   day: string;
   location: string;
+}
+
+interface UserAccount {
+  email: string;
+  username: string;
+  role: string;
 }
 
 // Sub-component for OCR Schedule Image Upload
@@ -313,27 +323,32 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
-  // MFA state hooks
+  // MFA state hooks - Start with LoginPortal by setting requiresMfaChoice to false initially
   const [requiresMfaChoice, setRequiresMfaChoice] = useState(false);
-  const [mfaChoiceChallenge, setMfaChoiceChallenge] = useState<string | null>(null);
+  const [mfaChoiceChallenge, setMfaChoiceChallenge] = useState<string | null>('initial-app-challenge');
   const [requiresMFA, setRequiresMFA] = useState(false);
   const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
   const [requiresMFASetup, setRequiresMFASetup] = useState(false);
   const [mfaCodeInput, setMfaCodeInput] = useState('');
   const [mfaError, setMfaError] = useState('');
+  const [mfaEmail, setMfaEmail] = useState(''); // Track email for MFA verification
 
-  const [requiresPhoneInput, setRequiresPhoneInput] = useState(false);
-  const [phoneInputUserId, setPhoneInputUserId] = useState<string | null>(null);
-  const [phoneNumberToSubmit, setPhoneNumberToSubmit] = useState('');
-  const [phoneInputError, setPhoneInputError] = useState('');
+  // Direct Email OTP flow states
+  const [requiresEmailOtpInput, setRequiresEmailOtpInput] = useState(false);
+  // Forgot Password flow states
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetOtpSent, setResetOtpSent] = useState(false);
+  const [resetOtp, setResetOtp] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetStatus, setResetStatus] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
-  const [requiresSmsMfa, setRequiresSmsMfa] = useState(false);
-  const [smsUserId, setSmsUserId] = useState<string | null>(null);
-  const [maskedPhone, setMaskedPhone] = useState('');
-  const [smsCodeInput, setSmsCodeInput] = useState('');
-  const [smsError, setSmsError] = useState('');
+  // Auth & Profile Modal Management
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [currentUserAccount, setCurrentUserAccount] = useState<UserAccount | null>(null);
 
-  // Navigation & Form Toggle states (added 'indoor', 'directory', 'dashboard' tabs)
+  // Navigation & Form Toggle states
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'map' | 'indoor' | 'directory' | 'profile' | 'about'>('dashboard');
   const [showManualForm, setShowManualForm] = useState(false);
   const [showOcrUploader, setShowOcrUploader] = useState(false);
@@ -341,53 +356,107 @@ export default function App() {
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('sso_token');
-    const savedUser = localStorage.getItem('sso_user');
-    if (savedToken) setToken(savedToken);
-    if (savedUser) setUser(JSON.parse(savedUser));
+    const storedToken = localStorage.getItem('sso_token');
+    if (storedToken) {
+      setToken(storedToken);
+    }
+    const storedUser = localStorage.getItem('sso_user');
+    if (storedUser) {
+      try { 
+        const parsed = JSON.parse(storedUser);
+        // Purge stale or placeholder "Updated Name" from localStorage
+        if (!parsed.name || parsed.name === 'Updated Name') {
+          parsed.name = parsed.username || parsed.email?.split('@')[0] || 'Student';
+          localStorage.setItem('sso_user', JSON.stringify(parsed));
+        }
+        setUser(parsed); 
+      } catch (e) {}
+    }
   }, []);
 
+  // Handles response when user logs in or registers
   const handleLoginResponse = (data: any) => {
-    if (data.requiresMfaChoice) {
+    if (data.email) {
+      setMfaEmail(data.email);
+    }
+
+    if (data.requiresMfaChoice || data.requires2FA || data.challenge) {
       setRequiresMfaChoice(true);
-      setMfaChoiceChallenge(data.challenge || 'fallback-challenge');
-    } else if (data.requiresPhoneInput) {
-      setRequiresPhoneInput(true);
-      setPhoneInputUserId(data.userId);
-    } else if (data.requiresSmsMfa) {
-      setRequiresSmsMfa(true);
-      setSmsUserId(data.userId);
-      setMaskedPhone(data.maskedPhone);
+      setMfaChoiceChallenge(data.challenge || 'initial-app-challenge');
     } else if (data.requiresMFA) {
       setRequiresMFA(true);
       setMfaChallenge(data.challenge);
+      if (data.email) setMfaEmail(data.email);
     } else if (data.requiresMFASetup) {
       setToken(data.token);
-      setUser(data.user);
+      if (data.user) {
+        const userData = {
+          ...data.user,
+          name: data.user.name && data.user.name !== 'Updated Name' 
+            ? data.user.name 
+            : (data.user.username || data.user.email?.split('@')[0] || 'Student')
+        };
+        localStorage.setItem('sso_user', JSON.stringify(userData));
+        setUser(userData);
+      }
       setRequiresMFASetup(true);
-    } else {
+    } else if (data.token) {
       localStorage.setItem('sso_token', data.token);
-      localStorage.setItem('sso_user', JSON.stringify(data.user));
+      if (data.user) {
+        const userData = {
+          ...data.user,
+          name: data.user.name && data.user.name !== 'Updated Name' 
+            ? data.user.name 
+            : (data.user.username || data.user.email?.split('@')[0] || 'Student')
+        };
+        localStorage.setItem('sso_user', JSON.stringify(userData));
+        setUser(userData);
+      }
       setToken(data.token);
-      setUser(data.user);
+    } else {
+      setRequiresMfaChoice(true);
     }
   };
 
   const handleVerifyLoginMFA = async (e: React.FormEvent) => {
     e.preventDefault();
     setMfaError('');
+
+    let targetEmail = mfaEmail;
+    if (!targetEmail) {
+      try {
+        const storedUser = localStorage.getItem('sso_user');
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          if (parsed.email) targetEmail = parsed.email;
+        }
+      } catch (err) {}
+    }
+    if (!targetEmail) {
+      targetEmail = 'nadhirah.michael-ho01@student.csulb.edu';
+    }
+
     try {
       const res = await fetch('/api/auth/mfa/verify-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challenge: mfaChallenge, code: mfaCodeInput })
+        body: JSON.stringify({ email: targetEmail, challenge: mfaChallenge, code: mfaCodeInput })
       });
       const data = await res.json();
+
       if (res.ok) {
         localStorage.setItem('sso_token', data.token);
-        localStorage.setItem('sso_user', JSON.stringify(data.user));
+        if (data.user) {
+          const userData = {
+            ...data.user,
+            name: data.user.name && data.user.name !== 'Updated Name' 
+              ? data.user.name 
+              : (data.user.username || data.user.email?.split('@')[0] || 'Student')
+          };
+          localStorage.setItem('sso_user', JSON.stringify(userData));
+          setUser(userData);
+        }
         setToken(data.token);
-        setUser(data.user);
         setRequiresMFA(false);
       } else {
         setMfaError(data.error || 'Invalid authenticator code');
@@ -397,18 +466,21 @@ export default function App() {
     }
   };
 
+  
   const handleLogout = () => {
     localStorage.removeItem('sso_token');
     localStorage.removeItem('sso_user');
     setToken(null);
     setUser(null);
     setRequiresMfaChoice(false);
-    setMfaChoiceChallenge(null);
+    setMfaChoiceChallenge('initial-app-challenge');
     setRequiresMFA(false);
     setMfaChallenge(null);
     setRequiresMFASetup(false);
-    setRequiresPhoneInput(false);
-    setRequiresSmsMfa(false);
+    setRequiresEmailOtpInput(false);
+    setMfaEmail('');
+    setCurrentUserAccount(null);
+    setShowAuthModal(false);
   };
 
   const handleSyncSuccess = () => {
@@ -418,160 +490,325 @@ export default function App() {
     setShowIcsUploader(false);
   };
 
-  // Conditional Rendering Screen 0: MFA Choice Selection View
-  if (requiresMfaChoice) {
+  // Step 0: Render LoginPortal or Forgot Password View
+  if (!token && !requiresMfaChoice && !requiresMFA && !requiresEmailOtpInput) {
     return (
-      <div style={{ maxWidth: '420px', margin: '80px auto', padding: '2.5rem', background: '#FFFFFF', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', fontFamily: 'system-ui, sans-serif', textAlign: 'center', border: '1px solid #E5E7EB' }}>
-        <h2 style={{ color: '#111827', marginTop: 0, fontSize: '24px', fontWeight: '800' }}>Choose Verification Method</h2>
-        <p style={{ color: '#4B5563', fontSize: '15px', marginBottom: '24px', lineHeight: '1.5' }}>Select how you would like to receive your verification code.</p>
-        
-        <button 
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/auth/mfa/choose-method', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ challenge: mfaChoiceChallenge, method: 'sms' })
-              });
-              const data = await res.json();
-              if (res.ok && data.requiresSmsMfa) {
-                setRequiresMfaChoice(false);
-                setRequiresSmsMfa(true);
-                setSmsUserId(data.userId);
-                setMaskedPhone(data.maskedPhone || '••••');
-              } else {
-                alert(data.error || 'Failed to trigger SMS.');
-              }
-            } catch (err) {
-              alert('Network error connecting to server.');
-            }
-          }}
-          style={{ width: '100%', background: '#141414', color: '#FFC72C', padding: '14px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer', marginBottom: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
-        >
-          📱 Send SMS Code
-        </button>
+      <div style={{ 
+        backgroundImage: `linear-gradient(rgba(0, 43, 73, 0.65), rgba(0, 43, 73, 0.85)), url(${campusBgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        minHeight: '100vh', 
+        display: 'flex', 
+        flexDirection: 'column',
+        alignItems: 'center', 
+        justifyContent: 'center',
+        padding: '20px',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
+        {!showForgotPassword ? (
+          <>
+            <LoginPortal onLoginSuccess={handleLoginResponse} />
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgotPassword(true);
+                setResetStatus(null);
+                setResetOtpSent(false);
+              }}
+              style={{
+                marginTop: '14px',
+                background: 'rgba(0, 43, 73, 0.85)',
+                color: '#FFC72C',
+                border: '1px solid rgba(255, 199, 44, 0.4)',
+                padding: '10px 20px',
+                borderRadius: '0.75rem',
+                fontWeight: '700',
+                fontSize: '14px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.25)'
+              }}
+            >
+              🔑 Forgot Password?
+            </button>
+          </>
+        ) : (
+          <div style={{ width: '100%', maxWidth: '420px', background: '#FFFFFF', padding: '2.5rem', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', border: '1px solid #E5E7EB' }}>
+            <h2 style={{ color: '#002B49', marginTop: 0, fontSize: '22px', fontWeight: '900' }}>Reset Your Password</h2>
+            <p style={{ color: '#4B5563', fontSize: '14px', lineHeight: '1.5', marginBottom: '20px' }}>
+              {!resetOtpSent
+                ? 'Enter your CSULB student email to receive a 6-digit password reset code.'
+                : `Enter the 6-digit code sent to ${resetEmail} and choose a new password.`}
+            </p>
 
-        <button 
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/auth/mfa/choose-method', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ challenge: mfaChoiceChallenge, method: 'totp' })
-              });
-              const data = await res.json();
-              if (res.ok && data.requiresMFA) {
-                setRequiresMfaChoice(false);
-                setRequiresMFA(true);
-                setMfaChallenge(data.challenge);
-              } else {
-                alert(data.error || 'Failed to load authenticator flow.');
-              }
-            } catch (err) {
-              alert('Network error connecting to server.');
-            }
-          }}
-          style={{ width: '100%', background: '#F3F4F6', color: '#111827', padding: '14px', border: '1.5px solid #D1D5DB', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer' }}
-        >
-          🔐 Use Authenticator App
-        </button>
+            {!resetOtpSent ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setResetLoading(true);
+                  setResetStatus(null);
+                  try {
+                    const res = await fetch('/api/auth/forgot-password', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ email: resetEmail })
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                      setResetOtpSent(true);
+                      setResetStatus({ type: 'success', text: data.message });
+                    } else {
+                      setResetStatus({ type: 'error', text: data.error || 'Failed to send reset code.' });
+                    }
+                  } catch {
+                    setResetStatus({ type: 'error', text: 'Network error connecting to server.' });
+                  } finally {
+                    setResetLoading(false);
+                  }
+                }}
+              >
+                <input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="first.last01@student.csulb.edu"
+                  required
+                  style={{ width: '100%', padding: '12px 14px', fontSize: '14px', marginBottom: '16px', boxSizing: 'border-box', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', background: '#F9FAFB' }}
+                />
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  style={{ width: '100%', background: '#FFC72C', color: '#111827', padding: '13px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer', opacity: resetLoading ? 0.6 : 1 }}
+                >
+                  {resetLoading ? 'Sending Code...' : 'Send Reset Code'}
+                </button>
+              </form>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setResetLoading(true);
+                  setResetStatus(null);
+                  try {
+                    const res = await fetch('/api/auth/reset-password', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ email: resetEmail, otp: resetOtp, newPassword: resetNewPassword })
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                      setResetStatus({ type: 'success', text: data.message });
+                      setTimeout(() => {
+                        setShowForgotPassword(false);
+                        setResetOtpSent(false);
+                        setResetOtp('');
+                        setResetNewPassword('');
+                        setResetStatus(null);
+                      }, 1500);
+                    } else {
+                      setResetStatus({ type: 'error', text: data.error || 'Failed to reset password.' });
+                    }
+                  } catch {
+                    setResetStatus({ type: 'error', text: 'Network error resetting password.' });
+                  } finally {
+                    setResetLoading(false);
+                  }
+                }}
+              >
+                <input
+                  type="text"
+                  value={resetOtp}
+                  onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="6-Digit Verification Code"
+                  maxLength={6}
+                  required
+                  style={{ width: '100%', padding: '12px 14px', fontSize: '16px', letterSpacing: '3px', textAlign: 'center', marginBottom: '12px', boxSizing: 'border-box', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', background: '#F9FAFB' }}
+                />
+                <input
+                  type="password"
+                  value={resetNewPassword}
+                  onChange={(e) => setResetNewPassword(e.target.value)}
+                  placeholder="Enter New Password"
+                  required
+                  style={{ width: '100%', padding: '12px 14px', fontSize: '14px', marginBottom: '16px', boxSizing: 'border-box', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', background: '#F9FAFB' }}
+                />
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  style={{ width: '100%', background: '#002B49', color: '#FFC72C', padding: '13px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer', opacity: resetLoading ? 0.6 : 1 }}
+                >
+                  {resetLoading ? 'Updating Password...' : 'Confirm New Password'}
+                </button>
+              </form>
+            )}
+
+            {resetStatus && (
+              <p style={{ marginTop: '14px', fontSize: '13px', fontWeight: '700', textAlign: 'center', color: resetStatus.type === 'error' ? '#DC2626' : '#059669' }}>
+                {resetStatus.type === 'error' ? '⚠️ ' : '✅ '}
+                {resetStatus.text}
+              </p>
+            )}
+
+            <div style={{ marginTop: '18px', paddingTop: '14px', borderTop: '1px solid #E5E7EB', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setResetStatus(null);
+                }}
+                style={{ background: 'transparent', border: 'none', color: '#002B49', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+              >
+                ← Back to Login
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Conditional Rendering Screen 1: Phone Number Entry Prompt View
-  if (requiresPhoneInput) {
+  // Step 1: Choose Verification Method View
+  if (!token && requiresMfaChoice) {
     return (
-      <div style={{ maxWidth: '420px', margin: '80px auto', padding: '2.5rem', background: '#FFFFFF', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', fontFamily: 'system-ui, sans-serif', border: '1px solid #E5E7EB' }}>
-        <h2 style={{ color: '#111827', marginTop: 0, fontSize: '24px', fontWeight: '800' }}>Enter Phone Number</h2>
-        <p style={{ color: '#4B5563', fontSize: '15px', lineHeight: '1.5', marginBottom: '20px' }}>Please enter your mobile phone number to receive your SMS login verification code.</p>
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          setPhoneInputError('');
-          try {
-            const res = await fetch('/api/auth/mfa/send-sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: phoneInputUserId, phoneNumber: phoneNumberToSubmit })
-            });
-            const result = await res.json();
-            if (res.ok && result.requiresSmsMfa) {
-              setRequiresPhoneInput(false);
-              setRequiresSmsMfa(true);
-              setSmsUserId(result.userId);
-              setMaskedPhone(result.maskedPhone);
-            } else {
-              setPhoneInputError(result.error || 'Failed to send SMS verification code.');
-            }
-          } catch (err) {
-            setPhoneInputError('Network error connecting to server.');
-          }
-        }}>
-          <input
-            type="tel"
-            value={phoneNumberToSubmit}
-            onChange={e => setPhoneNumberToSubmit(e.target.value)}
-            placeholder="(555) 000-0000"
-            required
-            autoFocus
-            style={{ width: '100%', padding: '14px', fontSize: '16px', marginBottom: '18px', boxSizing: 'border-box', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', background: '#F9FAFB' }}
-          />
-          <button type="submit" style={{ width: '100%', background: '#FFC72C', color: '#111827', padding: '14px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '16px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(255,199,44,0.3)' }}>
-            Send Verification SMS
+      <div style={{ 
+        backgroundImage: `linear-gradient(rgba(0, 43, 73, 0.65), rgba(0, 43, 73, 0.85)), url(${campusBgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        minHeight: '100vh', 
+        display: 'flex', 
+        flexDirection: 'column',
+        alignItems: 'center', 
+        justifyContent: 'center',
+        padding: '20px',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
+        {/* University Logo & Title Header */}
+        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+          {logoImage && (
+            <div 
+              style={{ 
+                width: '80px', 
+                height: '80px', 
+                borderRadius: '50%', 
+                backgroundImage: `url(${logoImage})`, 
+                backgroundSize: 'cover', 
+                backgroundPosition: 'center', 
+                border: '3px solid #FFC72C',
+                margin: '0 auto 12px auto',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+              }} 
+            />
+          )}
+          <h1 style={{ color: '#FFFFFF', fontSize: '26px', fontWeight: '900', margin: 0, textShadow: '0 2px 4px rgba(0,0,0,0.4)' }}>
+            CSULB Campus Resource Finder
+          </h1>
+          <p style={{ color: '#FFC72C', fontSize: '15px', fontWeight: '700', margin: '6px 0 0' }}>
+            Choose Verification Method
+          </p>
+        </div>
+
+        {/* Choice Selection Card */}
+        <div style={{ width: '100%', maxWidth: '420px', background: '#FFFFFF', padding: '2.5rem', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+          <p style={{ color: '#4B5563', fontSize: '15px', marginBottom: '24px', lineHeight: '1.5' }}>Select how you would like to receive your verification code.</p>
+          
+          {/* Email Verification Code Option */}
+          <button 
+            onClick={() => {
+              setRequiresMfaChoice(false);
+              setRequiresEmailOtpInput(true);
+            }}
+            style={{ width: '100%', background: '#002B49', color: '#FFC72C', padding: '14px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer', marginBottom: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+          >
+            ✉️ Email Verification Code
           </button>
-        </form>
-        {phoneInputError && <p style={{ color: '#DC2626', fontSize: '14px', marginTop: '12px', textAlign: 'center', fontWeight: 'bold' }}>⚠️ {phoneInputError}</p>}
-      </div>
-    );
-  }
 
-  // Conditional Rendering Screen 2: SMS Verification Code Entry View
-  if (requiresSmsMfa) {
-    return (
-      <div style={{ maxWidth: '420px', margin: '80px auto', padding: '2.5rem', background: '#FFFFFF', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', fontFamily: 'system-ui, sans-serif', border: '1px solid #E5E7EB' }}>
-        <h2 style={{ color: '#111827', marginTop: 0, fontSize: '24px', fontWeight: '800' }}>SMS Authentication</h2>
-        <p style={{ color: '#4B5563', fontSize: '15px', lineHeight: '1.5', marginBottom: '20px' }}>We sent a 6-digit verification code to your phone ending in <b>{maskedPhone}</b>.</p>
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          setSmsError('');
-          try {
-            const res = await fetch('/api/auth/mfa/verify-sms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: smsUserId, code: smsCodeInput })
-            });
-            const result = await res.json();
-            if (res.ok) {
-              localStorage.setItem('sso_token', result.token);
-              localStorage.setItem('sso_user', JSON.stringify(result.user));
-              setToken(result.token);
-              setUser(result.user);
-              setRequiresSmsMfa(false);
-            } else {
-              setSmsError(result.error || 'Invalid code');
-            }
-          } catch (err) {
-            setSmsError('Network error verifying code.');
-          }
-        }}>
-          <input
-            value={smsCodeInput}
-            onChange={e => setSmsCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="123456"
-            maxLength={6}
-            autoFocus
-            style={{ width: '100%', padding: '14px', fontSize: '20px', textAlign: 'center', letterSpacing: '4px', marginBottom: '18px', boxSizing: 'border-box', border: '1.5px solid #D1D5DB', borderRadius: '0.75rem', background: '#F9FAFB' }}
-          />
-          <button type="submit" style={{ width: '100%', background: '#FFC72C', color: '#111827', padding: '14px', border: 'none', borderRadius: '0.85rem', fontWeight: '800', fontSize: '16px', cursor: 'pointer', boxShadow: '0 4px 6px rgba(255,199,44,0.3)' }}>
-            Verify & Sign In
+          {/* Authenticator App Option */}
+          <button 
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/auth/mfa/choose-method', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ email: mfaEmail, challenge: mfaChoiceChallenge, method: 'totp' })
+                });
+                const data = await res.json();
+                if (res.ok && data.requiresMFA) {
+                  setRequiresMfaChoice(false);
+                  setRequiresMFA(true);
+                  setMfaChallenge(data.challenge);
+                } else {
+                  alert(data.error || 'Failed to load authenticator flow.');
+                }
+              } catch (err) {
+                alert('Network error connecting to server.');
+              }
+            }}
+            style={{ width: '100%', background: '#F3F4F6', color: '#111827', padding: '14px', border: '1.5px solid #D1D5DB', borderRadius: '0.85rem', fontWeight: '800', fontSize: '15px', cursor: 'pointer' }}
+          >
+            🔐 Use Authenticator App
           </button>
-        </form>
-        {smsError && <p style={{ color: '#DC2626', fontSize: '14px', marginTop: '12px', textAlign: 'center', fontWeight: 'bold' }}>⚠️ {smsError}</p>}
+
+          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E5E7EB' }}>
+            <button
+              onClick={() => setRequiresMfaChoice(false)}
+              style={{ width: '100%', background: 'transparent', color: '#002B49', border: 'none', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+            >
+              ← Back to Login
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
-  // Conditional Rendering Screen 3: TOTP Authenticator Challenge Prompt View
+  // Conditional Rendering Screen: Direct Email OTP Flow
+  if (requiresEmailOtpInput) {
+    return (
+      <div style={{ 
+        backgroundImage: `linear-gradient(rgba(0, 43, 73, 0.65), rgba(0, 43, 73, 0.85)), url(${campusBgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        minHeight: '100vh', 
+        display: 'flex', 
+        flexDirection: 'column',
+        alignItems: 'center', 
+        justifyContent: 'center',
+        padding: '20px'
+      }}>
+        <div style={{ width: '100%', maxWidth: '420px', position: 'relative' }}>
+          <button
+            onClick={() => {
+              setRequiresEmailOtpInput(false);
+              setRequiresMfaChoice(true);
+            }}
+            style={{ background: 'transparent', border: 'none', color: '#FFC72C', fontWeight: '800', cursor: 'pointer', fontSize: '14px', marginBottom: '12px' }}
+          >
+            ← Back to Verification Methods
+          </button>
+
+          <LoginWith2FA 
+            onLoginSuccess={(data) => {
+              localStorage.setItem('sso_token', data.token);
+              if (data.user) {
+                const userData = {
+                  ...data.user,
+                  name: data.user.name || data.user.username || data.user.email?.split('@')[0] || 'Student'
+                };
+                localStorage.setItem('sso_user', JSON.stringify(userData));
+                setUser(userData);
+              }
+              setToken(data.token);
+              setRequiresEmailOtpInput(false);
+            }} 
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Conditional Rendering Screen: TOTP Authenticator Challenge Prompt View
   if (requiresMFA) {
     return (
       <div style={{ maxWidth: '420px', margin: '80px auto', padding: '2.5rem', background: '#FFFFFF', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', fontFamily: 'system-ui, sans-serif', border: '1px solid #E5E7EB' }}>
@@ -595,7 +832,7 @@ export default function App() {
     );
   }
 
-  // Conditional Rendering Screen 4: Initial MFA Setup (QR Code Scanning) View
+  // Conditional Rendering Screen: Initial MFA Setup (QR Code Scanning) View
   if (token && requiresMFASetup) {
     return (
       <MFASetup 
@@ -609,18 +846,7 @@ export default function App() {
     );
   }
 
-  // Conditional Rendering Screen 5: Login Portal View
-  if (!token) {
-    return (
-      <LoginPortal 
-        onLoginSuccess={(data) => {
-          handleLoginResponse(data);
-        }} 
-      />
-    );
-  }
-
-  // Conditional Rendering Screen 6: Main Dashboard & Tab Views (Styled with Campus Background Image & Color Palette)
+  // Conditional Rendering: Main Dashboard & Tab Views
   return (
     <div style={{ 
       backgroundImage: `linear-gradient(rgba(247, 247, 245, 0.40), rgba(247, 247, 245, 0.90)), url(${campusBgImage})`,
@@ -660,13 +886,20 @@ export default function App() {
           <div>
             <h1 style={{ margin: 0, color: '#111827', fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px' }}>CSULB Campus Resource Finder</h1>
             <p style={{ margin: '6px 0 0', color: '#4B5563', fontSize: '15px', fontWeight: '600' }}>
-              Welcome, {user?.name || 'Student'} ({user?.email})
+              Welcome, {user?.name || user?.username || 'Student'} ({user?.email || currentUserAccount?.email || 'student@student.csulb.edu'})
             </p>
           </div>
         </div>
 
-        {/* Action buttons matching screenshot styling */}
+        {/* Action buttons */}
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button 
+            onClick={() => setShowAuthModal(true)}
+            style={{ padding: '10px 16px', background: '#334151', color: '#F8FAFC', border: '1px solid #475569', borderRadius: '0.75rem', cursor: 'pointer', fontWeight: '700', fontSize: '13px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
+          >
+            {currentUserAccount ? `👤 ${currentUserAccount.username} (${currentUserAccount.role})` : '🔐 Account & Profile'}
+          </button>
+
           <button 
             onClick={() => { setShowOcrUploader(!showOcrUploader); setShowIcsUploader(false); setShowManualForm(false); }}
             style={{ padding: '10px 16px', background: '#141414', color: '#FFC72C', border: 'none', borderRadius: '0.75rem', cursor: 'pointer', fontWeight: '800', fontSize: '13px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
@@ -697,136 +930,103 @@ export default function App() {
         </div>
       </div>
 
-      {/* Conditional Uploaders / Forms */}
       {showOcrUploader && <ScheduleUploader onUploadSuccess={handleSyncSuccess} />}
       {showIcsUploader && <ICSUploader onUploadSuccess={handleSyncSuccess} />}
       {showManualForm && <ScheduleUploadForm onUploadSuccess={handleSyncSuccess} />}
 
-      {/* Navigation Tabs Bar matching Screenshot pill buttons */}
+      {/* Navigation Tabs Bar */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
         <button 
           onClick={() => setActiveTab('dashboard')}
-          style={{
-            background: activeTab === 'dashboard' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'dashboard' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'dashboard' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'dashboard' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'dashboard' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           📊 Dashboard
         </button>
-
         <button 
           onClick={() => setActiveTab('schedule')}
-          style={{
-            background: activeTab === 'schedule' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'schedule' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'schedule' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'schedule' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'schedule' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           📅 Schedule
         </button>
-
         <button 
           onClick={() => setActiveTab('map')}
-          style={{
-            background: activeTab === 'map' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'map' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'map' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'map' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'map' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           🗺️ Campus Map
         </button>
-
         <button 
           onClick={() => setActiveTab('indoor')}
-          style={{
-            background: activeTab === 'indoor' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'indoor' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'indoor' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'indoor' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'indoor' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           🏢 Indoor Navigator
         </button>
-
         <button 
           onClick={() => setActiveTab('directory')}
-          style={{
-            background: activeTab === 'directory' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'directory' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'directory' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'directory' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'directory' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
-          🤝 Directory
+          🤝 Basic Needs
         </button>
-
         <button 
           onClick={() => setActiveTab('profile')}
-          style={{
-            background: activeTab === 'profile' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'profile' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'profile' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'profile' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'profile' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           👤 Profile
         </button>
-
         <button 
           onClick={() => setActiveTab('about')}
-          style={{
-            background: activeTab === 'about' ? '#141414' : '#FFFFFF',
-            color: activeTab === 'about' ? '#FFC72C' : '#111827',
-            border: '2px solid #141414',
-            padding: '10px 18px',
-            borderRadius: '0.75rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'about' ? '0 4px 6px rgba(0,0,0,0.1)' : 'none'
-          }}
+          style={{ padding: '10px 18px', background: activeTab === 'about' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'about' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
           ℹ️ About
         </button>
       </div>
 
-      {/* Tab Content Display Area */}
-      <div>
+      {/* Render Active Tab Content */}
+      <div style={{ background: '#FFFFFF', padding: '2rem', borderRadius: '1.25rem', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
         {activeTab === 'dashboard' && <PersonalDashboard />}
         {activeTab === 'schedule' && <ScheduleViewer key={scheduleRefreshKey} />}
         {activeTab === 'map' && <CampusMap />}
         {activeTab === 'indoor' && <IndoorNavigator />}
         {activeTab === 'directory' && <BasicNeedsDirectory />}
-        {activeTab === 'profile' && <ProfilePage />}
+        {activeTab === 'profile' && <ProfilePage onUpdate={(updated) => {
+          setUser((prev: any) => {
+            const updatedUser = { ...prev, name: updated.name };
+            localStorage.setItem('sso_user', JSON.stringify(updatedUser));
+            return updatedUser;
+          });
+        }} />}
         {activeTab === 'about' && <AboutPage />}
       </div>
+
+      {/* Modal View for Auth & Profile Manager */}
+      {showAuthModal && (
+  <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+    <AuthAndProfileModal
+      currentUser={currentUserAccount}
+      onLoginSuccess={(account) => {
+        setCurrentUserAccount(account);
+        // Sync global user state & localStorage so the welcome banner updates instantly!
+        setUser((prev: any) => {
+          const updatedUser = { 
+            ...prev, 
+            name: account.username,
+            username: account.username, 
+            role: account.role 
+          };
+          localStorage.setItem('sso_user', JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+        setShowAuthModal(false);
+      }}
+      onLogout={() => {
+        setCurrentUserAccount(null);
+        setShowAuthModal(false);
+      }}
+      onBack={() => setShowAuthModal(false)}
+    />
+  </div>
+)}
+      
+      
     </div>
   );
 }

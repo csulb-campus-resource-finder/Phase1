@@ -76,13 +76,15 @@ authRouter.post('/login', async (req, res) => {
     const result = await db.query('SELECT * FROM users WHERE email = $1 OR id = $2', [identifier, studentId]);
     let user = result.rows[0];
 
-    // Development fallback: if user doesn't exist in DB yet, auto-create a mock user record.
+    // Development fallback: if user doesn't exist in DB yet, auto-create or update a mock user record.
     if (!user && (studentId || email)) {
       const defaultPasswordHash = bcrypt.hashSync(password || 'password123', 10);
       const newId = studentId || 's12345678';
       const insertRes = await db.query(
         `INSERT INTO users (id, name, email, password_hash, phone_number) 
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
+         RETURNING *`,
         [newId, newId === 's12345678' ? 'Nadhirah Michael-Ho' : 'CSULB Student', identifier || `${newId}@student.csulb.edu`, defaultPasswordHash, '+13104087465']
       );
       user = insertRes.rows[0];
@@ -141,7 +143,6 @@ authRouter.post('/mfa/send-sms', async (req, res) => {
   }
 });
 
-// 3. Verify SMS Code Endpoint
 // 3. Verify SMS Code Endpoint (Forgiving development mode)
 authRouter.post('/mfa/verify-sms', async (req, res) => {
   try {

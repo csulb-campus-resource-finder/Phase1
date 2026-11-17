@@ -16,6 +16,8 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('nadhirah.michael-ho01@student.csulb.edu');
   // State hook for storing the student name input, initialized with a default student name.
   const [name, setName] = useState('Nadhirah Michael-Ho');
+  // State hook for storing the password input
+  const [password, setPassword] = useState('');
   // State hook tracking whether an SSO request is currently in progress (loading state).
   const [loading, setLoading] = useState<boolean>(false);
   // State hook for storing and displaying any authentication error messages.
@@ -32,21 +34,18 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
 
     // Validates that the entered email string strictly ends with the official CSULB student domain.
     if (!email.endsWith('@student.csulb.edu')) {
-      // Sets an error message if the email domain is invalid.
       setError('Access restricted to valid @student.csulb.edu accounts.');
-      // Resets loading state to false.
       setLoading(false);
-      // Exits the function early.
       return;
     }
 
     try {
-      // Sends an HTTP POST request to the backend SSO authentication endpoint via Vite proxy (supports mobile local network testing)
+      // Sends an HTTP POST request to the backend SSO authentication endpoint via Vite proxy
       const response = await fetch('/api/auth/sso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Serializes the email and name state variables into a JSON payload string.
-        body: JSON.stringify({ email, name }),
+        // Serializes email, name, and password into the JSON payload string.
+        body: JSON.stringify({ email, name, password }),
       });
 
       // Parses the incoming JSON response from the server.
@@ -57,18 +56,25 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
         throw new Error(data.error || 'SSO authentication failed.');
       }
 
-      // Passes the entire response payload (handling MFA states or tokens) up to App.tsx via callback.
+      // 👈 FIX: Save the token to localStorage so the Profile page and API requests recognize you
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+      } else if (data.accessToken) {
+        localStorage.setItem('token', data.accessToken);
+      }
+
+      // Passes the response payload (handling MFA states or tokens) up to App.tsx via callback.
       onLoginSuccess(data);
     } catch (err: any) {
       // Catches any errors during fetch or parsing and stores the error message in state.
       setError(err.message);
     } finally {
-      // Executes regardless of success or failure to reset the loading indicator.
+      // Resets loading indicator.
       setLoading(false);
     }
   };
 
-  // Renders the updated high-end login portal user interface JSX layout.
+  // Renders the login portal user interface JSX layout.
   return (
     <div style={{ 
       display: 'flex', 
@@ -93,7 +99,7 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
         {/* Top Hero Section with Walter Pyramid background & CSULB branding badge */}
         <div style={{
           position: 'relative',
-          height: '360px',
+          height: '320px',
           backgroundImage: 'linear-gradient(to bottom, rgba(0, 43, 73, 0.35), rgba(0, 43, 73, 0.92)), url("https://images.unsplash.com/photo-1541339907198-e08756dedf3f?q=80&w=1000")',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
@@ -137,23 +143,23 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
                 MADE FOR THE BEACH
               </span>
             </div>
-            <h1 style={{ margin: '0 0 10px 0', fontSize: '38px', fontWeight: '900', lineHeight: '1.05', color: '#ffffff', letterSpacing: '-0.5px' }}>
+            <h1 style={{ margin: '0 0 10px 0', fontSize: '34px', fontWeight: '900', lineHeight: '1.05', color: '#ffffff', letterSpacing: '-0.5px' }}>
               Your campus.<br />
               <span style={{ color: '#ffffff' }}>Within reach.</span>
             </h1>
-            <p style={{ margin: 0, fontSize: '14px', color: '#E5E7EB', fontWeight: '500' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: '#E5E7EB', fontWeight: '500' }}>
               Find your way. Find your people. Find your spot.
             </p>
           </div>
         </div>
 
         {/* Lower Content Body & Form Area */}
-        <div style={{ padding: '32px 28px', backgroundColor: '#FAF9F6' }}>
-          <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '26px', fontWeight: '900', letterSpacing: '-0.5px' }}>
+        <div style={{ padding: '28px 28px', backgroundColor: '#FAF9F6' }}>
+          <h2 style={{ margin: '0 0 6px 0', color: '#111827', fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px' }}>
             One login. All of campus.
           </h2>
-          <p style={{ margin: '0 0 24px 0', color: '#6B7280', fontSize: '14px', lineHeight: '1.5', fontWeight: '500' }}>
-            Your shortcut to campus resources, student finds, easier parking, and a place to focus.
+          <p style={{ margin: '0 0 20px 0', color: '#6B7280', fontSize: '13px', lineHeight: '1.4', fontWeight: '500' }}>
+            Your shortcut to campus resources, student finds, and easier parking.
           </p>
 
           {/* Conditionally renders an error alert box if an error exists */}
@@ -161,10 +167,10 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
             <div style={{ 
               background: '#FEE2E2', 
               color: '#991B1B', 
-              padding: '14px 16px', 
+              padding: '12px 14px', 
               borderRadius: '0.75rem', 
               fontSize: '13px', 
-              marginBottom: '20px',
+              marginBottom: '16px',
               border: '1px solid #FCA5A5',
               fontWeight: '700'
             }}>
@@ -173,10 +179,10 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
           )}
 
           {/* Login form bound to the handleSSOLogin submission handler */}
-          <form onSubmit={handleSSOLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <form onSubmit={handleSSOLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {/* Input field for Student Full Name */}
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: '#002B49', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
                 Student Full Name
               </label>
               <input 
@@ -186,23 +192,23 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
                 placeholder="Enter your full name"
                 style={{ 
                   width: '100%', 
-                  padding: '14px 16px', 
+                  padding: '12px 14px', 
                   border: '1.5px solid #D1D5DB', 
                   borderRadius: '0.75rem', 
-                  fontSize: '15px', 
+                  fontSize: '14px', 
                   boxSizing: 'border-box',
                   backgroundColor: '#ffffff',
                   outline: 'none',
                   fontWeight: '600',
                   color: '#1F2937'
-                }}
+                }} 
                 required
               />
             </div>
 
             {/* Input field for CSULB Student Email */}
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: '#002B49', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
                 CSULB Student Email
               </label>
               <input 
@@ -212,21 +218,47 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
                 placeholder="username@student.csulb.edu"
                 style={{ 
                   width: '100%', 
-                  padding: '14px 16px', 
+                  padding: '12px 14px', 
                   border: '1.5px solid #D1D5DB', 
                   borderRadius: '0.75rem', 
-                  fontSize: '15px', 
+                  fontSize: '14px', 
                   boxSizing: 'border-box',
                   backgroundColor: '#ffffff',
                   outline: 'none',
                   fontWeight: '600',
                   color: '#1F2937'
-                }}
+                }} 
                 required
               />
-              <span style={{ fontSize: '12px', color: '#6B7280', marginTop: '6px', display: 'block', fontWeight: '500' }}>
+              <span style={{ fontSize: '11px', color: '#6B7280', marginTop: '4px', display: 'block', fontWeight: '500' }}>
                 Must end with @student.csulb.edu
               </span>
+            </div>
+
+            {/* Input field for Password */}
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
+                Password
+              </label>
+              <input 
+                type="password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                style={{ 
+                  width: '100%', 
+                  padding: '12px 14px', 
+                  border: '1.5px solid #D1D5DB', 
+                  borderRadius: '0.75rem', 
+                  fontSize: '14px', 
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                  outline: 'none',
+                  fontWeight: '600',
+                  color: '#1F2937'
+                }} 
+                required
+              />
             </div>
 
             {/* Vibrant CSULB Gold Action Button with Callout Arrow */}
@@ -234,13 +266,13 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
               type="submit" 
               disabled={loading}
               style={{ 
-                marginTop: '10px', 
-                padding: '16px', 
+                marginTop: '6px', 
+                padding: '14px', 
                 background: '#FFC72C', 
                 color: '#002B49', 
                 border: 'none', 
                 borderRadius: '1rem', 
-                fontSize: '16px', 
+                fontSize: '15px', 
                 fontWeight: '900', 
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex',
@@ -252,22 +284,22 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
               }}
             >
               <span>{loading ? 'Authenticating...' : 'Continue with CSULB SSO'}</span>
-              <span style={{ fontSize: '18px', fontWeight: '900' }}>↗</span>
+              <span style={{ fontSize: '16px', fontWeight: '900' }}>↗</span>
             </button>
           </form>
 
           {/* Footer Security Badges and Helper Links */}
-          <div style={{ marginTop: '20px', textAlign: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#6B7280', fontSize: '12px', fontWeight: '600' }}>
+          <div style={{ marginTop: '16px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#6B7280', fontSize: '11px', fontWeight: '600' }}>
               <span>🛡️</span>
               <span>Secure sign-in with your BeachID</span>
             </div>
 
-            <p style={{ marginTop: '12px', fontSize: '14px', color: '#4B5563', fontWeight: '600' }}>
+            <p style={{ marginTop: '10px', fontSize: '13px', color: '#4B5563', fontWeight: '600' }}>
               New to campus? <a href="#help" style={{ color: '#002B49', fontWeight: '800', textDecoration: 'underline' }}>Get sign-in help</a>
             </p>
 
-            <p style={{ marginTop: '32px', fontSize: '11px', color: '#9CA3AF', lineHeight: '1.5', margin: '32px 0 0 0' }}>
+            <p style={{ marginTop: '24px', fontSize: '11px', color: '#9CA3AF', lineHeight: '1.4', margin: '24px 0 0 0' }}>
               By continuing, you agree to our Terms of Use and Privacy Policy.<br />
               Built for the Long Beach student community.
             </p>

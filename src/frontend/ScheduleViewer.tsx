@@ -89,6 +89,35 @@ export function ScheduleViewer() {
     }
   };
 
+  // Asynchronous function to delete all courses from the schedule.
+  const handleDeleteAll = async () => {
+    if (courses.length === 0) return;
+    if (!window.confirm('Are you sure you want to remove ALL courses from your schedule?')) return;
+
+    try {
+      const token = localStorage.getItem('sso_token');
+      
+      // Sends an empty array to your sync endpoint to clear the schedule
+      const res = await fetch('/api/schedules/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ courses: [] })
+      });
+
+      if (res.ok) {
+        setCourses([]);
+      } else {
+        alert('Failed to clear schedule.');
+      }
+    } catch (err) {
+      console.error('Error clearing schedule:', err);
+      alert('Network error while clearing schedule.');
+    }
+  };
+
   // Handler function to initialize the inline edit state for a selected course.
   const handleStartEdit = (course: Course) => {
     setEditingCode(course.code);
@@ -162,15 +191,25 @@ export function ScheduleViewer() {
   // Renders the schedule viewer component layout JSX.
   return (
     <div style={{ background: '#fff', borderRadius: '8px', padding: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', border: '1px solid #e5e7eb' }}>
-      {/* Header section with title and manual refresh button */}
+      {/* Header section with title, refresh button, and delete all button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <h2 style={{ margin: 0, color: '#1f2937', fontSize: '20px' }}>📅 Enrolled Class Schedule (Fall 2026)</h2>
-        <button 
-          onClick={fetchSchedule}
-          style={{ background: 'transparent', border: '1px solid #d1d5db', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: '#374151' }}
-        >
-          🔄 Refresh
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={fetchSchedule}
+            style={{ background: 'transparent', border: '1px solid #d1d5db', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: '#374151' }}
+          >
+            🔄 Refresh
+          </button>
+          {courses.length > 0 && (
+            <button 
+              onClick={handleDeleteAll}
+              style={{ background: '#fee2e2', border: '1px solid #fca5a5', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: '#991b1b', fontWeight: 'bold' }}
+            >
+              🗑️ Delete All
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Conditionally renders either an empty state message or a grid of enrolled courses */}

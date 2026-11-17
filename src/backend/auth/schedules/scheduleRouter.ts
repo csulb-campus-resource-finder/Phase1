@@ -1,11 +1,41 @@
 // Imports Router and Response types from the Express web framework.
-import { Router, Response } from 'express';
-// Imports SSO authentication services and the custom AuthenticatedRequest interface.
-import { SSOService, AuthenticatedRequest } from '../../../auth/ssoService';
+import { Router, Request, Response } from 'express';
+// Imports JWT for token verification.
+import jwt from 'jsonwebtoken';
 // Imports the Pool class from the 'pg' library for managing PostgreSQL database connections.
 import { Pool } from 'pg';
 // Imports the Axios HTTP client library for making external API requests.
 import axios from 'axios';
+
+// Extends Express Request to include authenticated user payload context.
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+    [key: string]: any;
+  };
+}
+
+// Robust authentication middleware matching server.ts secret handling exactly
+export const authenticateToken = (req: AuthenticatedRequest, res: Response, next: Function) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(403).json({ error: 'Access token required.' });
+  }
+
+  const secret = process.env.JWT_SECRET || 'csulb-dev-secret-key-2026';
+  try {
+    const decoded = jwt.verify(token, secret) as any;
+    req.user = decoded;
+    next();
+  } catch (err) {
+    console.error('Token verification failed in scheduleRouter:', err);
+    return res.status(403).json({ error: 'Invalid or expired token.' });
+  }
+};
 
 // Initializes and exports an Express Router instance dedicated to course schedule routes.
 export const scheduleRouter = Router();
@@ -69,8 +99,8 @@ function isClassCurrentlyActive(course: Course): boolean {
   return currentTimeMinutes >= startTimeMinutes && currentTimeMinutes <= endTimeMinutes;
 }
 
-// 1. GET endpoint to retrieve the student's current schedule, secured with SSO token authentication.
-scheduleRouter.get('/my-schedule', SSOService.authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// 1. GET endpoint to retrieve the student's current schedule, secured with token authentication.
+scheduleRouter.get('/my-schedule', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   // Extracts user ID from the request token context, with a fallback student ID.
   const userId = req.user?.id || 's12345678';
   // Extracts user email from the request token context, with a fallback student email.
@@ -90,9 +120,9 @@ scheduleRouter.get('/my-schedule', SSOService.authenticateToken, async (req: Aut
          COALESCE(cc.end_time, se.end_time) as "endTime", 
          COALESCE(cc.building, se.building, 'ECS') as building, 
          COALESCE(cc.room, se.room, '100') as room 
-       FROM student_enrollments se
-       LEFT JOIN cached_courses cc ON se.course_code = cc.course_code
-       WHERE se.student_identifier = $1 OR se.student_identifier = $2`,
+        FROM student_enrollments se
+        LEFT JOIN cached_courses cc ON se.course_code = cc.course_code
+        WHERE se.student_identifier = $1 OR se.student_identifier = $2`,
       [userId, userEmail]
     );
 
@@ -126,8 +156,8 @@ scheduleRouter.get('/my-schedule', SSOService.authenticateToken, async (req: Aut
   });
 });
 
-// 2. POST endpoint to sync student course schedules, protected by SSO authentication.
-scheduleRouter.post('/sync', SSOService.authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+// 2. POST endpoint to sync student course schedules, protected by authentication.
+scheduleRouter.post('/sync', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   // Retrieves the student email from the authenticated user token context.
   const studentEmail = req.user?.email || 'nadhirah.michael-ho01@student.csulb.edu';
   // Extracts the courses array from the incoming request body payload.
@@ -199,7 +229,7 @@ scheduleRouter.post('/sync', SSOService.authenticateToken, async (req: Authentic
 });
 
 // 3. POST endpoint to sync student schedules directly from the Canvas LMS API.
-scheduleRouter.post('/sync-canvas', SSOService.authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+scheduleRouter.post('/sync-canvas', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   // Extracts student email from user token context.
   const studentEmail = req.user?.email || 'nadhirah.michael-ho01@student.csulb.edu';
   // Extracts the Canvas access token from the request body.

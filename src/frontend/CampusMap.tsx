@@ -1,7 +1,5 @@
-// Imports the React library and hooks for state management.
 import React, { useState } from 'react';
 
-// Defines a TypeScript interface for campus map resources/locations.
 interface CampusResource {
   id: string;
   name: string;
@@ -11,23 +9,21 @@ interface CampusResource {
   amenities: string;
   address: string;
   description: string;
-  concept3dQuery: string;
-  directionsQuery: string; // Internal Concept3D route query string
+  lat: number;
+  lng: number;
+  zoom: number;
+  concept3dLocationId?: string;
 }
 
 export const CampusMap: React.FC = () => {
-  // State hook to track whether the map is currently displayed in fullscreen mode.
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  // State for search input query typed by the user
   const [searchQuery, setSearchQuery] = useState<string>('');
-  // State for active category filter
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  // State controlling whether search results are visible after searching
   const [showResults, setShowResults] = useState<boolean>(false);
-  // State tracking whether internal Concept3D routing mode is currently active
   const [isRoutingActive, setIsRoutingActive] = useState<boolean>(false);
+  const [bookmarkedIds, setBookmarkedIds] = useState<string[]>(['lib']);
+  const [cameraTrigger, setCameraTrigger] = useState<number>(Date.now());
 
-  // Pre-populated database of CSULB locations with native Concept3D direction routes
   const initialResources: CampusResource[] = [
     { 
       id: 'g2', 
@@ -38,8 +34,10 @@ export const CampusMap: React.FC = () => {
       amenities: 'General Student Parking • EV Chargers nearby', 
       address: 'G2 Parking Lot, CSULB', 
       description: 'G2 Parking Lot is a primary general student parking zone located on the north side of campus near the Walter Pyramid. It offers ample surface-level parking with accessible stalls and direct walkway access to lower campus facilities.',
-      concept3dQuery: '1314#!ct/91383?sbc/&scale=0&z=18',
-      directionsQuery: '1314#!ct/91383,91209?mc/33.7828,-118.1130?z=18'
+      lat: 33.7865,
+      lng: -118.1147,
+      zoom: 18,
+      concept3dLocationId: '91383'
     },
     { 
       id: 'lib', 
@@ -50,8 +48,10 @@ export const CampusMap: React.FC = () => {
       amenities: 'Wi-Fi • Quiet Study • Computer Labs', 
       address: 'University Library, CSULB', 
       description: 'The CSULB University Library is a 5-story academic center situated along Friendship Walk. It provides extensive study carrels, group study rooms, computer labs, printing stations, and the 24/7 Spidell Technology Center.',
-      concept3dQuery: '1314#!ct/91209?sbc/&scale=0&z=19',
-      directionsQuery: '1314#!ct/91209,91380?mc/33.7801,-118.1135?z=19'
+      lat: 33.7772,
+      lng: -118.1144,
+      zoom: 19,
+      concept3dLocationId: '91209'
     },
     { 
       id: 'usu', 
@@ -62,8 +62,10 @@ export const CampusMap: React.FC = () => {
       amenities: 'Food Court • Lounge • Games Room', 
       address: 'University Student Union, CSULB', 
       description: 'The University Student Union (USU) serves as the social center for Beach students. Spanning three floors, it features popular campus dining (Starbucks, Panda Express), student lounges, and the Beach Games Center.',
-      concept3dQuery: '1314#!ct/91380?sbc/&scale=0&z=19',
-      directionsQuery: '1314#!ct/91380,91209?mc/33.7812,-118.1120?z=19'
+      lat: 33.7812,
+      lng: -118.1137,
+      zoom: 19,
+      concept3dLocationId: '91380'
     },
     { 
       id: 'bookstore', 
@@ -74,8 +76,10 @@ export const CampusMap: React.FC = () => {
       amenities: 'Textbooks • Supplies • Beach Gear', 
       address: '49er Shops Bookstore, CSULB', 
       description: 'Operated by 49er Shops, the CSULB Bookstore is your official one-stop shop for required textbooks, tech gear, school supplies, and official Beach apparel.',
-      concept3dQuery: '1314#!ct/91382?sbc/&scale=0&z=19',
-      directionsQuery: '1314#!ct/91382,91209?mc/33.7818,-118.1128?z=19'
+      lat: 33.7801,
+      lng: -118.1132,
+      zoom: 19,
+      concept3dLocationId: '91382'
     },
     { 
       id: 'pyramid', 
@@ -86,23 +90,33 @@ export const CampusMap: React.FC = () => {
       amenities: 'Athletics • Fitness • Arena', 
       address: 'Walter Pyramid, CSULB', 
       description: 'Standing 18 stories tall, the iconic cobalt-blue Walter Pyramid is a 4,000-seat multi-purpose arena hosting Beach Athletics basketball and volleyball games.',
-      concept3dQuery: '1314#!ct/91209?sbc/&scale=0&z=18',
-      directionsQuery: '1314#!ct/91209,91383?mc/33.7860,-118.1140?z=18'
+      lat: 33.7874,
+      lng: -118.1144,
+      zoom: 18
     },
+    { 
+      id: 'vec', 
+      name: 'Vivian Engineering Center (VEC)', 
+      category: 'study', 
+      status: 'Open until 10 PM', 
+      walkTime: '5 min walk', 
+      amenities: 'CECS Labs • Study Lounges • Tutoring', 
+      address: 'Vivian Engineering Center, CSULB', 
+      description: 'Home to the College of Engineering, featuring computer science labs, student project workspaces, and peer tutoring centers.',
+      lat: 33.7828,
+      lng: -118.1105,
+      zoom: 19
+    }
   ];
 
-  // State for resources list
   const [resources, setResources] = useState<CampusResource[]>(initialResources);
-
-  // Currently selected resource card (defaults to University Library)
   const [selectedResource, setSelectedResource] = useState<CampusResource>(initialResources[1]);
 
-  // Handle Search Form Submission
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
-    setIsRoutingActive(false); // Reset route overlay on new search
+    setIsRoutingActive(false);
     const queryLower = searchQuery.toLowerCase().trim();
 
     const matched = resources.filter(res => 
@@ -113,6 +127,7 @@ export const CampusMap: React.FC = () => {
 
     if (matched.length > 0) {
       setSelectedResource(matched[0]);
+      setCameraTrigger(Date.now());
     } else {
       const formattedName = searchQuery.charAt(0).toUpperCase() + searchQuery.slice(1);
       const customResource: CampusResource = {
@@ -124,51 +139,65 @@ export const CampusMap: React.FC = () => {
         amenities: 'CSULB Campus Location',
         address: `${searchQuery}, CSULB`,
         description: `${formattedName} is a designated location within the California State University, Long Beach campus perimeter with accessible pedestrian pathways.`,
-        concept3dQuery: `1314#!s/${encodeURIComponent(searchQuery)}?scale=0&z=19`,
-        directionsQuery: `1314#!s/${encodeURIComponent(searchQuery)}?scale=0&z=19`
+        lat: 33.7815,
+        lng: -118.1140,
+        zoom: 18
       };
 
       setResources(prev => [customResource, ...prev]);
       setSelectedResource(customResource);
+      setCameraTrigger(Date.now());
     }
 
     setShowResults(true);
   };
 
-  // Handle selecting a resource from search results
   const handleSelectResource = (resource: CampusResource) => {
     setSelectedResource(resource);
     setIsRoutingActive(false);
     setShowResults(false);
+    setCameraTrigger(Date.now());
   };
 
-  // Filter resources based on category and query
+  const toggleBookmark = (id: string) => {
+    setBookmarkedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
   const filteredResources = resources.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.amenities.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          item.amenities.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = activeCategory === 'all' || item.category === activeCategory;
     return matchesSearch && matchesCategory;
   });
 
-  // Handle Live Concept3D Internal Routing
   const handleGetConcept3DDirections = () => {
     setIsRoutingActive(true);
+    setCameraTrigger(Date.now());
   };
 
-  // Cleanly construct Concept3D map URL with proper parameter separation
-  const mapQuery = isRoutingActive ? selectedResource.directionsQuery : selectedResource.concept3dQuery;
-  const getConcept3dUrl = (query: string, name: string) => {
-    if (query.startsWith('1314')) {
-      const cleanQuery = query.replace(/^1314/, '');
-      return `https://map.concept3d.com/?id=1314${cleanQuery}`;
+  const buildConcept3dUrl = (res: CampusResource, routing: boolean, trigger: number) => {
+    const baseUrl = `https://map.concept3d.com/?id=1314&t=${trigger}`;
+    
+    if (routing) {
+      return `${baseUrl}#!ct/91209,${res.concept3dLocationId || '91380'}?mc/${res.lat},${res.lng}?z=${Math.max(17, res.zoom - 1)}`;
     }
-    return `https://map.concept3d.com/?id=1314#!s/${encodeURIComponent(name)}?scale=0&z=19`;
+
+    if (res.id.startsWith('custom-')) {
+      return `${baseUrl}#!s/${encodeURIComponent(res.name)}?mc/${res.lat},${res.lng}?z=${res.zoom}`;
+    }
+
+    const markerPart = res.concept3dLocationId ? `ct/${res.concept3dLocationId}?` : '';
+    return `${baseUrl}#!${markerPart}mc/${res.lat},${res.lng}?z=${res.zoom}`;
   };
-  const concept3dMapUrl = getConcept3dUrl(mapQuery, selectedResource.name);
+
+  const concept3dMapUrl = buildConcept3dUrl(selectedResource, isRoutingActive, cameraTrigger);
+  const isBookmarked = bookmarkedIds.includes(selectedResource.id);
 
   return (
     <div style={{ padding: '24px 20px', fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: '1200px', margin: '0 auto', color: '#1A1A1A', boxSizing: 'border-box' }}>
       
-      {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
         <div>
           <span style={{ fontSize: '11px', fontWeight: '800', color: '#6B7280', letterSpacing: '1.2px', textTransform: 'uppercase' }}>
@@ -186,8 +215,8 @@ export const CampusMap: React.FC = () => {
             color: '#FFC72C', 
             border: 'none', 
             borderRadius: '0.75rem', 
-            cursor: 'pointer',
-            fontWeight: '800',
+            cursor: 'pointer', 
+            fontWeight: '800', 
             fontSize: '13px',
             boxShadow: '0 2px 4px rgba(0,43,73,0.2)'
           }}
@@ -196,20 +225,19 @@ export const CampusMap: React.FC = () => {
         </button>
       </div>
 
-      {/* Interactive Search Bar & Filter Pills Container */}
       <form onSubmit={handleSearchSubmit} style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {/* Search Input */}
           <div style={{ position: 'relative', flex: 1 }}>
             <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '16px', color: '#6B7280' }}>🔍</span>
             <input 
               type="text"
-              placeholder="Search buildings, food, or resources (e.g. Lot G2, Pyramid)..."
+              placeholder="Search buildings, food, or resources (e.g. Lot G2, Pyramid, Engineering)..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setShowResults(true);
               }}
+              onFocus={() => setShowResults(true)}
               style={{
                 width: '100%',
                 padding: '14px 16px 14px 46px',
@@ -225,7 +253,6 @@ export const CampusMap: React.FC = () => {
               }}
             />
           </div>
-          {/* Search Action Button */}
           <button 
             type="submit"
             style={{
@@ -244,7 +271,6 @@ export const CampusMap: React.FC = () => {
           </button>
         </div>
 
-        {/* Filter Category Pills */}
         <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
           {[
             { id: 'all', label: 'All', icon: '☷' },
@@ -276,7 +302,6 @@ export const CampusMap: React.FC = () => {
         </div>
       </form>
 
-      {/* Search Results Dropdown List */}
       {showResults && (
         <div style={{ 
           background: '#FFFFFF', 
@@ -290,9 +315,10 @@ export const CampusMap: React.FC = () => {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <span style={{ fontSize: '12px', fontWeight: '800', color: '#6B7280', textTransform: 'uppercase' }}>
-              Search Results ({filteredResources.length})
+              Campus Locations ({filteredResources.length})
             </span>
             <button 
+              type="button"
               onClick={() => setShowResults(false)}
               style={{ background: 'none', border: 'none', color: '#6B7280', fontWeight: '800', cursor: 'pointer', fontSize: '12px' }}
             >
@@ -309,7 +335,7 @@ export const CampusMap: React.FC = () => {
                   padding: '12px 14px',
                   borderRadius: '0.75rem',
                   background: selectedResource.id === res.id ? '#FEF3C7' : '#F9FAFB',
-                  border: '1px solid #E5E7EB',
+                  border: selectedResource.id === res.id ? '1.5px solid #FFC72C' : '1px solid #E5E7EB',
                   cursor: 'pointer',
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -320,7 +346,7 @@ export const CampusMap: React.FC = () => {
                   <div style={{ fontWeight: '900', color: '#002B49', fontSize: '15px' }}>{res.name}</div>
                   <div style={{ fontSize: '12px', color: '#4B5563', marginTop: '2px' }}>{res.status} &nbsp;•&nbsp; {res.walkTime}</div>
                 </div>
-                <span style={{ fontSize: '13px', fontWeight: '800', color: '#002B49', background: '#FFC72C', padding: '4px 10px', borderRadius: '1rem' }}>
+                <span style={{ fontSize: '13px', fontWeight: '800', color: '#002B49', background: '#FFC72C', padding: '4px 12px', borderRadius: '1rem' }}>
                   Zoom & Select 🔍
                 </span>
               </div>
@@ -329,7 +355,6 @@ export const CampusMap: React.FC = () => {
         </div>
       )}
 
-      {/* Embedded Concept3D Interactive Map Container - Automatically zooms in on selected building */}
       <div style={{ 
         width: '100%', 
         border: '1px solid #E5E7EB', 
@@ -366,7 +391,7 @@ export const CampusMap: React.FC = () => {
           </button>
         )}
         <iframe
-          key={`${selectedResource.id}-${isRoutingActive}-${concept3dMapUrl}`}
+          key={`${selectedResource.id}-${cameraTrigger}`}
           title="CSULB Concept3D Interactive Campus Map"
           src={concept3dMapUrl}
           width="100%"
@@ -376,7 +401,6 @@ export const CampusMap: React.FC = () => {
         />
       </div>
 
-      {/* Selected Resource Card with Detailed Description & Concept3D Directions */}
       <div style={{
         background: '#FFFFFF',
         borderRadius: '1.5rem',
@@ -390,22 +414,33 @@ export const CampusMap: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#6B7280', letterSpacing: '1px', textTransform: 'uppercase' }}>
-              SELECTED LOCATION
+              SELECTED LOCATION (ZOOM LEVEL {selectedResource.zoom}x)
             </span>
             <h3 style={{ margin: '4px 0 6px 0', fontSize: '24px', fontWeight: '900', color: '#002B49', letterSpacing: '-0.3px' }}>
               {selectedResource.name}
             </h3>
-            <p style={{ margin: 0, fontSize: '14px', color: '#047857', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <p style={{ margin: 0, fontSize: '14px', color: '#047857', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981', display: 'inline-block' }}></span>
               {selectedResource.status} &nbsp;•&nbsp; <span style={{ color: '#4B5563' }}>{selectedResource.walkTime}</span> &nbsp;•&nbsp; <span style={{ color: '#4B5563' }}>{selectedResource.amenities}</span>
             </p>
           </div>
-          <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '20px' }}>
-            🔖
+          <button 
+            type="button"
+            onClick={() => toggleBookmark(selectedResource.id)}
+            title={isBookmarked ? 'Remove Bookmark' : 'Save Location'}
+            style={{ 
+              background: isBookmarked ? '#FEF3C7' : '#F3F4F6', 
+              border: isBookmarked ? '1.5px solid #FFC72C' : '1px solid #D1D5DB', 
+              borderRadius: '0.75rem',
+              padding: '8px 12px',
+              cursor: 'pointer', 
+              fontSize: '18px' 
+            }}
+          >
+            {isBookmarked ? '⭐ Saved' : '🔖 Save'}
           </button>
         </div>
 
-        {/* Detailed Paragraph Description Section */}
         <div style={{
           backgroundColor: '#FAF9F5',
           borderRadius: '1rem',
@@ -421,20 +456,22 @@ export const CampusMap: React.FC = () => {
           </p>
         </div>
 
-        {/* Active Routing Banner */}
         {isRoutingActive && (
           <div style={{ background: '#FEF3C7', color: '#92400E', padding: '10px 14px', borderRadius: '0.5rem', fontSize: '13px', fontWeight: '800', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>🧭 Concept3D routing mode active for {selectedResource.name}</span>
+            <span>🧭 Concept3D routing view active for {selectedResource.name} ({selectedResource.lat.toFixed(4)}, {selectedResource.lng.toFixed(4)})</span>
             <button 
-              onClick={() => setIsRoutingActive(false)}
+              type="button"
+              onClick={() => {
+                setIsRoutingActive(false);
+                setCameraTrigger(Date.now());
+              }}
               style={{ background: 'none', border: 'none', color: '#92400E', fontWeight: '900', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
             >
-              Reset View
+              Reset Zoom
             </button>
           </div>
         )}
 
-        {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
           <button 
             type="button"
@@ -461,7 +498,24 @@ export const CampusMap: React.FC = () => {
 
           <button 
             type="button"
-            onClick={() => alert(`Details for ${selectedResource.name}:\nLocation: ${selectedResource.address}\nStatus: ${selectedResource.status}\nFacilities: ${selectedResource.amenities}`)}
+            onClick={() => setCameraTrigger(Date.now())}
+            style={{ 
+              padding: '16px 20px', 
+              background: '#002B49', 
+              color: '#FFC72C', 
+              border: 'none', 
+              borderRadius: '1rem', 
+              fontWeight: '800', 
+              fontSize: '15px', 
+              cursor: 'pointer' 
+            }}
+          >
+            🎯 Re-center Camera
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => alert(`Details for ${selectedResource.name}:\nAddress: ${selectedResource.address}\nCoordinates: ${selectedResource.lat}, ${selectedResource.lng}\nStatus: ${selectedResource.status}\nFacilities: ${selectedResource.amenities}`)}
             style={{ 
               padding: '16px 24px', 
               background: '#F3F4F6', 
