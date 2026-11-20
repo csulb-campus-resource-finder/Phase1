@@ -33,6 +33,9 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Get branch expiration date as an env variable (2 weeks from now)
         id: get_expiration_date
         run: echo "EXPIRES_AT=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
@@ -46,11 +49,10 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ env.EXPIRES_AT }}
 
-      # Optional: Run migrations against the new branch (never print DATABASE_URL to logs)
-      # - name: Run Migrations
-      #   run: npm run db:migrate
-      #   env:
-      #     DATABASE_URL: "${{ steps.create_neon_branch.outputs.db_url_with_pooler }}"
+      - name: Run Database Migrations
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/backend/schema.sql
+        env:
+          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url }}
 
   delete_neon_branch:
     name: Delete Neon Branch
