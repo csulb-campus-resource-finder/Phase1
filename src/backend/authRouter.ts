@@ -63,6 +63,60 @@ authRouter.post('/sso-login', (_req, res) => {
   res.status(501).json({ message: 'SSO authentication is not configured' });
 });
 
+authRouter.post('/sso', async (req, res) => {
+  try {
+    const { email, name, password, studentId } = req.body || {};
+    const cleanEmail = (email || (studentId ? `${studentId}@student.csulb.edu` : ''))
+      .toString()
+      .trim()
+      .toLowerCase();
+
+    if (!cleanEmail || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    const result = await db.query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR id = $2',
+      [cleanEmail, studentId || cleanEmail]
+    );
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const storedPassword = user.password_hash || user.password;
+    if (!comparePassword(password, storedPassword)) {
+      return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+    }
+
+    const displayName = (name && name.toString().trim()) || user.name || 'CSULB Student';
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        name: displayName,
+        role: user.role || 'student',
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        ...user,
+        email: user.email,
+        name: displayName,
+        role: user.role || 'student',
+      },
+    });
+  } catch (error) {
+    console.error('SSO login error:', error);
+    return res.status(500).json({ error: 'Internal server error during SSO login.' });
+  }
+});
 // 1. Initial Login Endpoint
 authRouter.post('/login', async (req, res) => {
   try {

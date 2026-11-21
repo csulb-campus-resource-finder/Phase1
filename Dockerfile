@@ -1,25 +1,21 @@
 FROM node:20-bookworm
 
-# Install Python and pip for helper scripts
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Copy dependency manifests
+# Copy dependency files first
 COPY package*.json ./
 
-# Install Node dependencies
-RUN npm install
+# Install dependencies
+RUN npm ci
 
-# Copy application source code
+# Copy application source
 COPY . .
 
-# Build TypeScript and Vite frontend bundle
+# Build application
 RUN npm run build --if-present
 
+# Application port
 EXPOSE 3000
 
+# Start application
 CMD ["npm", "start"]

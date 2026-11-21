@@ -17,7 +17,7 @@ export interface AuthenticatedRequest extends Request {
     id: string;                 // Unique user ID
     email: string;              // User email address
     name: string;               // User full name
-    role: 'student' | 'faculty' | 'staff'; // User permission role
+    role: 'student' | 'faculty' | 'staff' | string; // User permission role
   };
 }
 
@@ -25,31 +25,32 @@ export interface AuthenticatedRequest extends Request {
 export class SSOService {
   // Static asynchronous method to handle incoming SSO callback requests.
   static async handleSSOCallback(req: Request, res: Response): Promise<void> {
-    // Extracts email and name properties from the incoming request body payload.
-    const { email, name } = req.body;
+    // Extracts and normalizes email and name properties from the incoming request body payload.
+    const cleanEmail = (req.body?.email || '').toString().trim().toLowerCase();
+    const cleanName = (req.body?.name || '').toString().trim();
 
     // Validates that the email exists and strictly ends with the official CSULB student domain suffix.
-    if (!email || !email.endsWith('@student.csulb.edu')) {
+    if (!cleanEmail || !cleanEmail.endsWith('@student.csulb.edu')) {
       // Returns a 401 Unauthorized response if the email domain is invalid or missing.
       res.status(401).json({ error: 'Valid CSULB student email required.' });
       return;
     }
 
     // Queries the database via MFARepository to check if the user already exists.
-    let user = await MFARepository.getUser(email);
-    
+    let user = await MFARepository.getUser(cleanEmail);
+
     // If the user does not exist in the database, provision a default student user record object.
     if (!user) {
       user = {
-        id: email,
-        email,
-        name: name || 'Nadhirah Michael-Ho',
+        id: cleanEmail,
+        email: cleanEmail,
+        name: cleanName || 'Nadhirah Michael-Ho',
         role: 'student',
         mfaEnabled: false,
         mfaSecret: null,
         pendingSecret: null,
         phoneNumber: null,
-        mfaType: 'totp'
+        mfaType: 'totp',
       } as any;
     }
 
@@ -58,7 +59,7 @@ export class SSOService {
       id: string;
       email: string;
       name: string;
-      role: 'student' | 'faculty' | 'staff';
+      role?: string;
       mfaEnabled: boolean;
       mfaSecret?: string | null;
       pendingSecret?: string | null;
@@ -66,28 +67,32 @@ export class SSOService {
       mfaType?: string | null;
     };
 
+    const resolvedEmail = (dbUser.email || cleanEmail).trim().toLowerCase();
+    const resolvedName = cleanName || dbUser.name || 'Nadhirah Michael-Ho';
+    const resolvedRole = (dbUser.role || 'student').toString().trim();
+
     // Checks if the user has multi-factor authentication enabled on their account.
     if (dbUser.mfaEnabled) {
       // Generates a challenge allowing the user to choose between SMS or Authenticator App.
       const challenge = jwt.sign(
         {
-          sub: dbUser.id,
-          email: dbUser.email,
-          name: dbUser.name,
-          role: dbUser.role,
-          purpose: 'mfa-choice'
+          sub: dbUser.id || resolvedEmail,
+          email: resolvedEmail,
+          name: resolvedName,
+          role: resolvedRole,
+          purpose: 'mfa-choice',
         },
         JWT_SECRET,
         {
           expiresIn: '5m',
-          jwtid: crypto.randomUUID()
+          jwtid: crypto.randomUUID(),
         }
       );
 
       res.status(200).json({
         requiresMfaChoice: true,
         challenge,
-        message: 'Please select your verification method.'
+        message: 'Please select your verification method.',
       });
       return;
     }
@@ -95,22 +100,26 @@ export class SSOService {
     // If MFA is not yet enabled, issue a standard session token flagged for setup completion.
     const token = jwt.sign(
       {
-        sub: dbUser.id,
-        email: dbUser.email,
-        name: dbUser.name,
-        role: dbUser.role,
-        mfaComplete: false
+        sub: dbUser.id || resolvedEmail,
+        email: resolvedEmail,
+        name: resolvedName,
+        role: resolvedRole,
+        mfaComplete: false,
       },
       JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Returns a 200 OK response prompting the user to complete their MFA setup.
+    // Returns a 200 OK response including email and role for session synchronization.
     res.status(200).json({
       requiresMFA: false,
       requiresMFASetup: true,
       token,
-      user: { email: dbUser.email, name: dbUser.name }
+      user: {
+        email: resolvedEmail,
+        name: resolvedName,
+        role: resolvedRole,
+      },
     });
   }
 
@@ -124,7 +133,7 @@ export class SSOService {
       if (method === 'sms') {
         const smsCode = Math.floor(100000 + Math.random() * 900000).toString();
         const phoneNumber = (user as any)?.phoneNumber || '+13104087465';
-        
+
         if (phoneNumber) {
           await sendSmsVerification(phoneNumber, smsCode);
         }
@@ -136,7 +145,7 @@ export class SSOService {
             name: decoded.name,
             role: decoded.role,
             purpose: 'sms-mfa-login',
-            smsCode
+            smsCode,
           },
           JWT_SECRET,
           { expiresIn: '5m', jwtid: crypto.randomUUID() }
@@ -151,7 +160,7 @@ export class SSOService {
             email: decoded.email,
             name: decoded.name,
             role: decoded.role,
-            purpose: 'mfa-login'
+            purpose: 'mfa-login',
           },
           JWT_SECRET,
           { expiresIn: '5m', jwtid: crypto.randomUUID() }
@@ -192,7 +201,7 @@ export class SSOService {
         id: decoded.sub || decoded.email,
         email: decoded.email,
         name: decoded.name,
-        role: decoded.role || 'student'
+        role: decoded.role || 'student',
       };
 
       // Passes control forward to the next middleware function or route controller.

@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db } from './src/backend/db';
 
 async function runDatabaseTest() {
   const client = await db.connect();

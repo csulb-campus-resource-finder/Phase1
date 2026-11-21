@@ -12,69 +12,133 @@ interface LoginPortalProps {
 
 // Defines and exports the LoginPortal functional React component using TypeScript props.
 export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
-  // State hook for storing the student email input, initialized with a default CSULB student email.
-  const [email, setEmail] = useState('nadhirah.michael-ho01@student.csulb.edu');
-  // State hook for storing the student name input, initialized with a default student name.
-  const [name, setName] = useState('Nadhirah Michael-Ho');
+  // Toggles between SSO login and account registration view
+  const [isRegisterMode, setIsRegisterMode] = useState<boolean>(false);
+  // State hook for storing the chosen username during registration
+  const [username, setUsername] = useState<string>('');
+  // State hook for storing the student full name / display name input
+  const [name, setName] = useState<string>('Nadhirah Michael-Ho');
+  // State hook for storing the student email input
+  const [email, setEmail] = useState<string>('nadhirah.michael-ho01@student.csulb.edu');
   // State hook for storing the password input
-  const [password, setPassword] = useState('');
-  // State hook tracking whether an SSO request is currently in progress (loading state).
+  const [password, setPassword] = useState<string>('');
+  // State hook for role selection when registering a new account
+  const [role, setRole] = useState<string>('Campus Seller');
+  // State hook tracking whether a request is currently in progress (loading state).
   const [loading, setLoading] = useState<boolean>(false);
-  // State hook for storing and displaying any authentication error messages.
+  // State hook for storing and displaying any authentication error or status messages.
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleToggleMode = () => {
+    const nextMode = !isRegisterMode;
+    setIsRegisterMode(nextMode);
+    setError(null);
+    setStatusMessage(null);
+    if (nextMode) {
+      setUsername('');
+      setEmail('');
+      setPassword('');
+    } else {
+      setEmail('nadhirah.michael-ho01@student.csulb.edu');
+      setName('Nadhirah Michael-Ho');
+      setPassword('');
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setStatusMessage(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+    const chosenUsername = username.trim() || name.trim();
+
+    if (!cleanEmail.endsWith('@student.csulb.edu')) {
+      setError('Access restricted to valid @student.csulb.edu accounts.');
+      setLoading(false);
+      return;
+    }
+
+    if (!chosenUsername || !password) {
+      setError('Please enter a username and password.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          username: chosenUsername,
+          password,
+          role,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Account registration failed.');
+      }
+
+      setName(chosenUsername);
+      setStatusMessage(`Account created for "${chosenUsername}"! Sign in now to view your dashboard.`);
+      setIsRegisterMode(false);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Asynchronous handler function executed when the SSO login form is submitted.
   const handleSSOLogin = async (e: React.FormEvent) => {
-    // Prevents the browser's default form submission behavior (page refresh).
     e.preventDefault();
-    // Sets loading state to true to indicate the login request has started.
     setLoading(true);
-    // Clears any previous error messages.
     setError(null);
+    setStatusMessage(null);
 
-    // Validates that the entered email string strictly ends with the official CSULB student domain.
-    if (!email.endsWith('@student.csulb.edu')) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+
+    if (!cleanEmail.endsWith('@student.csulb.edu')) {
       setError('Access restricted to valid @student.csulb.edu accounts.');
       setLoading(false);
       return;
     }
 
     try {
-      // Sends an HTTP POST request to the backend SSO authentication endpoint via Vite proxy
       const response = await fetch('/api/auth/sso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Serializes email, name, and password into the JSON payload string.
-        body: JSON.stringify({ email, name, password }),
+        body: JSON.stringify({ email: cleanEmail, name: cleanName, password }),
       });
 
-      // Parses the incoming JSON response from the server.
       const data = await response.json();
-
-      // If the HTTP response status is not successful (not 2xx), throw an error.
       if (!response.ok) {
         throw new Error(data.error || 'SSO authentication failed.');
       }
 
-      // 👈 FIX: Save the token to localStorage so the Profile page and API requests recognize you
-      if (data.token) {
-        localStorage.setItem('token', data.token);
-      } else if (data.accessToken) {
-        localStorage.setItem('token', data.accessToken);
+      const tokenValue = data.token || data.accessToken;
+      if (tokenValue) {
+        localStorage.setItem('token', tokenValue);
+        localStorage.setItem('sso_token', tokenValue);
       }
 
-      // Passes the response payload (handling MFA states or tokens) up to App.tsx via callback.
-      onLoginSuccess(data);
+      onLoginSuccess({
+        ...data,
+        email: data.email || cleanEmail,
+      });
     } catch (err: any) {
-      // Catches any errors during fetch or parsing and stores the error message in state.
       setError(err.message);
     } finally {
-      // Resets loading indicator.
       setLoading(false);
     }
   };
 
-  // Renders the login portal user interface JSX layout.
   return (
     <div style={{ 
       display: 'flex', 
@@ -86,7 +150,6 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
       padding: '20px',
       boxSizing: 'border-box'
     }}>
-      {/* Main card container matching the mobile shell mockups */}
       <div style={{ 
         width: '100%', 
         maxWidth: '440px', 
@@ -96,7 +159,7 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
         border: '1px solid #E5E7EB'
       }}>
-        {/* Top Hero Section with Walter Pyramid background & CSULB branding badge */}
+        {/* Top Hero Section */}
         <div style={{
           position: 'relative',
           height: '320px',
@@ -110,7 +173,6 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
           justifyContent: 'space-between',
           boxSizing: 'border-box'
         }}>
-          {/* Header Bar with Seal and App Title using logo.png */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{
               width: '44px',
@@ -129,7 +191,6 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          {/* Hero Main Typography */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
               <span style={{ width: '16px', height: '3px', backgroundColor: '#FFC72C', display: 'inline-block', borderRadius: '2px' }}></span>
@@ -156,13 +217,29 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
         {/* Lower Content Body & Form Area */}
         <div style={{ padding: '28px 28px', backgroundColor: '#FAF9F6' }}>
           <h2 style={{ margin: '0 0 6px 0', color: '#111827', fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px' }}>
-            One login. All of campus.
+            {isRegisterMode ? 'Create your account.' : 'One login. All of campus.'}
           </h2>
           <p style={{ margin: '0 0 20px 0', color: '#6B7280', fontSize: '13px', lineHeight: '1.4', fontWeight: '500' }}>
-            Your shortcut to campus resources, student finds, and easier parking.
+            {isRegisterMode
+              ? 'Choose a username and register with your @student.csulb.edu email.'
+              : 'Your shortcut to campus resources, student finds, and easier parking.'}
           </p>
 
-          {/* Conditionally renders an error alert box if an error exists */}
+          {statusMessage && (
+            <div style={{
+              background: '#DCFCE7',
+              color: '#166534',
+              padding: '12px 14px',
+              borderRadius: '0.75rem',
+              fontSize: '13px',
+              marginBottom: '16px',
+              border: '1px solid #86EFAC',
+              fontWeight: '700'
+            }}>
+              ✅ {statusMessage}
+            </div>
+          )}
+
           {error && (
             <div style={{ 
               background: '#FEE2E2', 
@@ -178,35 +255,59 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
             </div>
           )}
 
-          {/* Login form bound to the handleSSOLogin submission handler */}
-          <form onSubmit={handleSSOLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {/* Input field for Student Full Name */}
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
-                Student Full Name
-              </label>
-              <input 
-                type="text" 
-                value={name} 
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your full name"
-                style={{ 
-                  width: '100%', 
-                  padding: '12px 14px', 
-                  border: '1.5px solid #D1D5DB', 
-                  borderRadius: '0.75rem', 
-                  fontSize: '14px', 
-                  boxSizing: 'border-box',
-                  backgroundColor: '#ffffff',
-                  outline: 'none',
-                  fontWeight: '600',
-                  color: '#1F2937'
-                }} 
-                required
-              />
-            </div>
+          <form onSubmit={isRegisterMode ? handleRegister : handleSSOLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {isRegisterMode ? (
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
+                  Username
+                </label>
+                <input 
+                  type="text" 
+                  value={username} 
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Choose a username (e.g., test)"
+                  style={{ 
+                    width: '100%', 
+                    padding: '12px 14px', 
+                    border: '1.5px solid #D1D5DB', 
+                    borderRadius: '0.75rem', 
+                    fontSize: '14px', 
+                    boxSizing: 'border-box',
+                    backgroundColor: '#ffffff',
+                    outline: 'none',
+                    fontWeight: '600',
+                    color: '#1F2937'
+                  }} 
+                  required
+                />
+              </div>
+            ) : (
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
+                  Student Full Name
+                </label>
+                <input 
+                  type="text" 
+                  value={name} 
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter your full name"
+                  style={{ 
+                    width: '100%', 
+                    padding: '12px 14px', 
+                    border: '1.5px solid #D1D5DB', 
+                    borderRadius: '0.75rem', 
+                    fontSize: '14px', 
+                    boxSizing: 'border-box',
+                    backgroundColor: '#ffffff',
+                    outline: 'none',
+                    fontWeight: '600',
+                    color: '#1F2937'
+                  }} 
+                  required
+                />
+              </div>
+            )}
 
-            {/* Input field for CSULB Student Email */}
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
                 CSULB Student Email
@@ -235,7 +336,6 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
               </span>
             </div>
 
-            {/* Input field for Password */}
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
                 Password
@@ -261,7 +361,34 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
               />
             </div>
 
-            {/* Vibrant CSULB Gold Action Button with Callout Arrow */}
+            {isRegisterMode && (
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '800', color: '#002B49', marginBottom: '4px' }}>
+                  Account Role
+                </label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    border: '1.5px solid #D1D5DB',
+                    borderRadius: '0.75rem',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                    backgroundColor: '#ffffff',
+                    outline: 'none',
+                    fontWeight: '600',
+                    color: '#1F2937'
+                  }}
+                >
+                  <option value="Student Buyer">Student Buyer</option>
+                  <option value="Campus Seller">Campus Seller</option>
+                  <option value="student">Student</option>
+                </select>
+              </div>
+            )}
+
             <button 
               type="submit" 
               disabled={loading}
@@ -283,12 +410,33 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({ onLoginSuccess }) => {
                 transition: 'all 0.2s ease-in-out'
               }}
             >
-              <span>{loading ? 'Authenticating...' : 'Continue with CSULB SSO'}</span>
+              <span>
+                {loading
+                  ? (isRegisterMode ? 'Registering...' : 'Authenticating...')
+                  : (isRegisterMode ? 'Register Account' : 'Continue with CSULB SSO')}
+              </span>
               <span style={{ fontSize: '16px', fontWeight: '900' }}>↗</span>
             </button>
           </form>
 
-          {/* Footer Security Badges and Helper Links */}
+          <div style={{ marginTop: '14px', textAlign: 'center' }}>
+            <button
+              type="button"
+              onClick={handleToggleMode}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#002B49',
+                fontSize: '13px',
+                fontWeight: '800',
+                cursor: 'pointer',
+                textDecoration: 'underline'
+              }}
+            >
+              {isRegisterMode ? 'Already have an account? Sign in with SSO' : 'Need an account? Register Account'}
+            </button>
+          </div>
+
           <div style={{ marginTop: '16px', textAlign: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#6B7280', fontSize: '11px', fontWeight: '600' }}>
               <span>🛡️</span>

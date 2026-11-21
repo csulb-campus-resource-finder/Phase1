@@ -48,10 +48,43 @@ const PORT = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Configures CORS middleware to permit requests from Vite frontend origins with credentials.
+// 1. CORS origins (include your local & LAN frontend ports)
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
-  credentials: true
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'http://10.187.1.144:3000',
+  ],
+  credentials: true,
 }));
+
+// Helper to resolve email + role from NeonDB
+async function resolveUserEmailAndRole(targetEmail: string) {
+  const cleanEmail = targetEmail.trim().toLowerCase();
+  const userRes = await pool.query(
+    `SELECT email, name, role FROM users WHERE LOWER(email) = LOWER($1)`,
+    [cleanEmail]
+  );
+
+  let email = userRes.rows[0]?.email || cleanEmail;
+  let name = userRes.rows[0]?.name || cleanEmail.split('@')[0];
+  let role = (userRes.rows[0]?.role || '').trim();
+
+  if (!role) {
+    const accRes = await pool.query(
+      `SELECT email, username, role FROM campus_accounts WHERE LOWER(email) = LOWER($1)`,
+      [cleanEmail]
+    );
+    if (accRes.rows[0]) {
+      email = accRes.rows[0].email || email;
+      name = accRes.rows[0].username || name;
+      role = (accRes.rows[0].role || '').trim();
+    }
+  }
+
+  return { email: email.trim().toLowerCase(), name, role };
+}
 // Configures Express to parse incoming JSON request bodies (increased limit to 10MB for base64 avatars).
 app.use(express.json({ limit: '10mb' }));
 // Serves static files from the public directory using __dirname.
@@ -109,7 +142,7 @@ function getRequiredUserEmail(req: any, res: any): string | null {
   }
 }
 
-// Asynchronous function to auto-initialize database tables and seed initial records on server startup.
+/// Asynchronous function to auto-initialize database tables and seed initial records on server startup.
 async function initializeDatabase() {
   try {
     // 1. Create tables and indexes individually to avoid multi-statement prepared statement errors
@@ -195,6 +228,7 @@ async function initializeDatabase() {
     await pool.query(`ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS end_time VARCHAR(50);`);
     await pool.query(`ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS building VARCHAR(50);`);
     await pool.query(`ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS room VARCHAR(50);`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_schedules_user_course ON user_schedules (user_id, course_code);`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS campus_accounts (
@@ -221,22 +255,28 @@ async function initializeDatabase() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR(255);`);
 
     // 3. Seed initial records with hashed default password ('password123')
+    const seedEmail = 'nadhirah.michael-ho01@student.csulb.edu';
     const defaultPasswordHash = await bcrypt.hash('password123', 10);
+
     await pool.query(`
       INSERT INTO users (id, email, name, role, mfa_enabled, phone_number, major, standing, bio, password_hash)
-      VALUES ('nadhirah.michael-ho01@student.csulb.edu', 'nadhirah.michael-ho01@student.csulb.edu', 'Nadhirah Michael-Ho', 'student', FALSE, '+13104087465', 'Computer Science', 'Undergraduate (Senior)', 'CSULB student building tools for the Beach community.', $1)
-      ON CONFLICT (id) DO UPDATE SET password_hash = COALESCE(users.password_hash, $1);
-    `, [defaultPasswordHash]);
+      VALUES ($1, $1, 'Nadhirah Michael-Ho', 'student', FALSE, '+13104087465', 'Computer Science', 'Undergraduate (Senior)', 'CSULB student building tools for the Beach community.', $2)
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        role = COALESCE(NULLIF(users.role, ''), EXCLUDED.role),
+        password_hash = COALESCE(users.password_hash, EXCLUDED.password_hash);
+    `, [seedEmail, defaultPasswordHash]);
 
     await pool.query(`
       INSERT INTO campus_accounts (email, username, password, role)
-      VALUES ('nadhirah.michael-ho01@student.csulb.edu', 'Nadhirah M.', 'password123', 'Student Buyer')
-      ON CONFLICT (email) DO NOTHING;
-    `);
+      VALUES ($1, 'Nadhirah M.', 'password123', 'Student Buyer')
+      ON CONFLICT (email) DO UPDATE SET
+        role = COALESCE(NULLIF(campus_accounts.role, ''), EXCLUDED.role);
+    `, [seedEmail]);
 
     console.log('✅ Database tables created and all default records seeded successfully!');
   } catch (err) {
-    console.warn('⚠️ Database auto-init warning:', err);
+    console.error('❌ Database auto-init error:', err);
   }
 }
 
@@ -427,21 +467,37 @@ app.use('/api/schedules', scheduleRouter);
 app.post('/api/v1/auth/register', async (req: any, res: any) => {
   try {
     const { email, username, password, role } = req.body;
-    if (!email || !username || !password) {
+    const cleanEmail = (email || '').toLowerCase().trim();
+    const cleanUsername = (username || '').trim();
+
+    if (!cleanEmail || !cleanUsername || !password) {
       return res.status(400).json({ error: 'Missing required registration fields.' });
     }
-    
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const cleanEmail = email.toLowerCase().trim();
 
-    // Insert directly into the main 'users' table so login finds it instantly!
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const assignedRole = (role || 'Student Buyer').trim();
+
+    // Insert into main 'users' table so login finds the account and chosen username/display name
     const query = `
       INSERT INTO users (id, email, name, role, password_hash)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING email, name as username, role;
     `;
-    const result = await pool.query(query, [cleanEmail, cleanEmail, username, role || 'Student Buyer', hashedPassword]);
-    
+    const result = await pool.query(query, [
+      cleanEmail,
+      cleanEmail,
+      cleanUsername,
+      assignedRole,
+      hashedPassword,
+    ]);
+
+    await pool.query(
+      `INSERT INTO campus_accounts (email, username, password, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO UPDATE SET username = EXCLUDED.username, role = EXCLUDED.role;`,
+      [cleanEmail, cleanUsername, hashedPassword, assignedRole]
+    );
+
     return res.json({ success: true, account: result.rows[0] });
   } catch (err: any) {
     console.error('Registration Error:', err);
@@ -455,14 +511,28 @@ app.post('/api/v1/auth/register', async (req: any, res: any) => {
 app.put('/api/v1/auth/profile', async (req: any, res: any) => {
   try {
     const { email, username, role } = req.body;
-    const query = `
-      UPDATE campus_accounts 
-      SET username = $1, role = $2 
-      WHERE email = $3 
-      RETURNING id, email, username, role;
-    `;
-    const result = await pool.query(query, [username, role, email]);
-    return res.json({ success: true, account: result.rows[0] });
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanRole = (role || '').trim();
+
+    if (!cleanEmail || !cleanRole) {
+      return res.status(400).json({ error: 'Both email and role are required.' });
+    }
+
+    await pool.query(
+      `UPDATE users SET name = COALESCE($1, name), role = $2 WHERE LOWER(email) = LOWER($3);`,
+      [username, cleanRole, cleanEmail]
+    );
+
+    const result = await pool.query(
+      `UPDATE campus_accounts
+       SET username = COALESCE($1, username), role = $2
+       WHERE LOWER(email) = LOWER($3)
+       RETURNING id, email, username, role;`,
+      [username, cleanRole, cleanEmail]
+    );
+
+    const updated = result.rows[0] || { email: cleanEmail, username, role: cleanRole };
+    return res.json({ success: true, account: updated });
   } catch (err: any) {
     console.error('Profile Update Error:', err);
     return res.status(500).json({ error: 'Failed to update profile.' });
@@ -626,7 +696,65 @@ app.post('/api/auth/mfa/verify-sms', (req: any, res: any) => {
     }
   });
 });
+app.post('/api/auth/sso', async (req: any, res: any) => {
+  const { email, name, password } = req.body || {};
+  const cleanEmail = (email || '').toString().trim().toLowerCase();
 
+  if (!cleanEmail || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  if (!isValidCsulbEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please use a valid CSULB student email ending with @student.csulb.edu.' });
+  }
+
+  try {
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+      [cleanEmail]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User account not found.' });
+    }
+
+    const dbUser = userResult.rows[0];
+    const storedHash = dbUser.password_hash || dbUser.password;
+
+    if (!storedHash) {
+      return res.status(400).json({ error: 'No password set for this account.' });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, storedHash);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Incorrect password. Please try again.' });
+    }
+
+    const resolved = await resolveUserEmailAndRole(cleanEmail);
+    const displayName = (name && name.toString().trim()) || resolved.name || dbUser.name || 'Student';
+    const role = resolved.role || dbUser.role || 'Student Buyer';
+
+    const token = jwt.sign(
+      { email: cleanEmail, id: dbUser.id || cleanEmail, role },
+      process.env.JWT_SECRET || 'csulb-dev-secret-key-2026',
+      { expiresIn: '7d' }
+    );
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        email: cleanEmail,
+        name: displayName,
+        username: resolved.name || displayName,
+        role,
+      },
+    });
+  } catch (error: any) {
+    console.error('SSO Login Error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error during SSO login.' });
+  }
+});
 app.post('/api/auth/login', async (req: any, res: any) => {
   const { email, password } = req.body;
 
@@ -694,36 +822,49 @@ app.post('/api/auth/login', async (req: any, res: any) => {
 });
 // Unified OTP verification handler to support all component route requests
 // Unified verification handler supporting Email OTPs AND Authenticator App (TOTP)
+// Unified verification handler supporting Email OTPs AND Authenticator App (TOTP)
 const handleVerifyOtpUnified = async (req: any, res: any) => {
   const { email, otp, code, challenge } = req.body;
-  const targetEmail = email || req.body.userId || 'nadhirah.michael-ho01@student.csulb.edu';
+  const rawEmail = (email || req.body.userId || 'nadhirah.michael-ho01@student.csulb.edu')
+    .toString()
+    .trim()
+    .toLowerCase();
   const targetOtp = String(otp || code || '').trim();
 
-  if (!targetEmail || !targetOtp) {
+  if (!rawEmail || !targetOtp) {
     return res.status(400).json({ error: 'Email/identifier and verification code are required.' });
   }
 
   let verified = false;
+  let dbUser: any = null;
+
+  try {
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR id = $1',
+      [rawEmail]
+    );
+    if (userResult.rows.length > 0) {
+      dbUser = userResult.rows[0];
+    }
+  } catch (err) {
+    console.error('User lookup error during OTP/TOTP verification:', err);
+  }
 
   // 1. First, try checking email/SMS OTP via AuthService
-  const emailOtpResult = authService.verifyOtp(targetEmail, targetOtp);
+  const emailOtpResult = authService.verifyOtp(rawEmail, targetOtp);
   if (emailOtpResult.success) {
     verified = true;
-  } else {
+  } else if (dbUser?.mfa_secret) {
     // 2. If email OTP fails, check if it's an Authenticator App (TOTP) code using speakeasy
     try {
-      const userResult = await pool.query('SELECT * FROM users WHERE email = $1 OR id = $1', [targetEmail]);
-      if (userResult.rows.length > 0 && userResult.rows[0].mfa_secret) {
-        const user = userResult.rows[0];
-        const totpValid = speakeasy.totp.verify({
-          secret: user.mfa_secret,
-          encoding: 'base32',
-          token: targetOtp,
-          window: 1
-        });
-        if (totpValid) {
-          verified = true;
-        }
+      const totpValid = speakeasy.totp.verify({
+        secret: dbUser.mfa_secret,
+        encoding: 'base32',
+        token: targetOtp,
+        window: 1,
+      });
+      if (totpValid) {
+        verified = true;
       }
     } catch (err) {
       console.error('TOTP verification fallback error:', err);
@@ -734,21 +875,54 @@ const handleVerifyOtpUnified = async (req: any, res: any) => {
     return res.status(400).json({ error: 'Invalid or expired verification code. Please try again.' });
   }
 
-  // Issue valid session token upon successful verification from either method
+  // Resolve email, name, and role from DB (checking campus_accounts if role is not set on users)
+  let resolvedEmail = (dbUser?.email || rawEmail).trim().toLowerCase();
+  let resolvedName =
+    dbUser?.name ||
+    (resolvedEmail === 'nadhirah.michael-ho01@student.csulb.edu'
+      ? 'Nadhirah Michael-Ho'
+      : resolvedEmail.split('@')[0]);
+  let resolvedRole = (dbUser?.role || '').toString().trim();
+
+  if (!resolvedRole) {
+    try {
+      const accResult = await pool.query(
+        'SELECT email, username, role FROM campus_accounts WHERE LOWER(email) = LOWER($1)',
+        [resolvedEmail]
+      );
+      if (accResult.rows.length > 0) {
+        resolvedEmail = (accResult.rows[0].email || resolvedEmail).trim().toLowerCase();
+        resolvedName = accResult.rows[0].username || resolvedName;
+        resolvedRole = (accResult.rows[0].role || '').toString().trim();
+      }
+    } catch (err) {
+      console.error('campus_accounts fallback error during verification:', err);
+    }
+  }
+
+  // Require BOTH an email address and a role
+  if (!resolvedEmail || !resolvedRole) {
+    return res.status(401).json({
+      error: 'Authentication failed: account must have both an email address and a role.',
+    });
+  }
+
+  // Issue valid session token containing email and role
   const token = jwt.sign(
-    { email: targetEmail, id: targetEmail },
+    { email: resolvedEmail, id: resolvedEmail, role: resolvedRole },
     process.env.JWT_SECRET || 'csulb-dev-secret-key-2026',
     { expiresIn: '7d' }
   );
 
-  return res.status(200).json({ 
-    success: true, 
+  return res.status(200).json({
+    success: true,
     message: 'Authentication complete. Welcome!',
     token,
-    user: { 
-      email: targetEmail, 
-      name: targetEmail === 'nadhirah.michael-ho01@student.csulb.edu' ? 'Nadhirah Michael-Ho' : 'Student' 
-    } 
+    user: {
+      email: resolvedEmail,
+      name: resolvedName,
+      role: resolvedRole,
+    },
   });
 };
 // Register unified aliases for all possible frontend route requests
@@ -877,16 +1051,22 @@ app.post('/api/v1/profile/avatar', upload.single('file'), async (req: any, res: 
 
 // Secure SSO / Login Callback with Password Verification
 const handleSecureLoginOrSSO = async (req: any, res: any) => {
-  const { email, password } = req.body;
-  
-  if (email && password) {
+  const rawEmail = (req.body?.email || '').toString().trim().toLowerCase();
+  const password = req.body?.password;
+  let resolvedDbName: string | undefined;
+
+  if (rawEmail && password) {
     try {
-      const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      const userResult = await pool.query(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+        [rawEmail]
+      );
       if (userResult.rows.length > 0) {
         const user = userResult.rows[0];
+        resolvedDbName = user.name;
         const passwordColumn = user.password_hash !== undefined ? 'password_hash' : 'password';
         const storedPasswordHash = user[passwordColumn];
-        
+
         if (storedPasswordHash) {
           const isPasswordValid = await bcrypt.compare(password, storedPasswordHash);
           if (!isPasswordValid) {
@@ -899,6 +1079,11 @@ const handleSecureLoginOrSSO = async (req: any, res: any) => {
     }
   }
 
+  req.body = {
+    ...req.body,
+    email: rawEmail,
+    name: resolvedDbName || req.body?.name,
+  };
   return SSOService.handleSSOCallback(req, res);
 };
 

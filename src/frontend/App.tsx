@@ -369,53 +369,87 @@ export default function App() {
           parsed.name = parsed.username || parsed.email?.split('@')[0] || 'Student';
           localStorage.setItem('sso_user', JSON.stringify(parsed));
         }
-        setUser(parsed); 
+        setUser(parsed);
+        if (parsed.email && parsed.role) {
+          setCurrentUserAccount({
+            email: parsed.email,
+            username: parsed.username || parsed.name || parsed.email.split('@')[0],
+            role: parsed.role,
+          });
+        }
       } catch (e) {}
     }
   }, []);
 
+  const syncAuthenticatedUser = (payload: any, fallbackEmail?: string) => {
+    const tokenValue = payload?.token || payload?.accessToken;
+    if (tokenValue) {
+      localStorage.setItem('sso_token', tokenValue);
+      setToken(tokenValue);
+    }
+
+    const rawUser = payload?.user || payload?.account || {};
+    const email = (rawUser.email || payload?.email || fallbackEmail || '').trim().toLowerCase();
+    const role = (rawUser.role || payload?.role || user?.role || currentUserAccount?.role || '').trim();
+    const displayName =
+      rawUser.name && rawUser.name !== 'Updated Name'
+        ? rawUser.name
+        : rawUser.username || (email ? email.split('@')[0] : 'Student');
+
+    if (email) {
+      const normalizedUser = {
+        ...user,
+        ...rawUser,
+        email,
+        ...(role ? { role } : {}),
+        name: displayName,
+        username: rawUser.username || displayName,
+      };
+      localStorage.setItem('sso_user', JSON.stringify(normalizedUser));
+      setUser(normalizedUser);
+      if (role) {
+        setCurrentUserAccount({
+          email,
+          username: normalizedUser.username,
+          role,
+        });
+      }
+    }
+  };
+
   // Handles response when user logs in or registers
   const handleLoginResponse = (data: any) => {
-    if (data.email) {
-      setMfaEmail(data.email);
+    const resolvedEmail = data?.email || data?.user?.email || data?.account?.email;
+    if (resolvedEmail) {
+      setMfaEmail(resolvedEmail);
     }
 
     if (data.requiresMfaChoice || data.requires2FA || data.challenge) {
       setRequiresMfaChoice(true);
       setMfaChoiceChallenge(data.challenge || 'initial-app-challenge');
-    } else if (data.requiresMFA) {
+      return;
+    }
+
+    if (data.requiresMFA) {
       setRequiresMFA(true);
       setMfaChallenge(data.challenge);
-      if (data.email) setMfaEmail(data.email);
-    } else if (data.requiresMFASetup) {
-      setToken(data.token);
-      if (data.user) {
-        const userData = {
-          ...data.user,
-          name: data.user.name && data.user.name !== 'Updated Name' 
-            ? data.user.name 
-            : (data.user.username || data.user.email?.split('@')[0] || 'Student')
-        };
-        localStorage.setItem('sso_user', JSON.stringify(userData));
-        setUser(userData);
-      }
-      setRequiresMFASetup(true);
-    } else if (data.token) {
-      localStorage.setItem('sso_token', data.token);
-      if (data.user) {
-        const userData = {
-          ...data.user,
-          name: data.user.name && data.user.name !== 'Updated Name' 
-            ? data.user.name 
-            : (data.user.username || data.user.email?.split('@')[0] || 'Student')
-        };
-        localStorage.setItem('sso_user', JSON.stringify(userData));
-        setUser(userData);
-      }
-      setToken(data.token);
-    } else {
-      setRequiresMfaChoice(true);
+      if (resolvedEmail) setMfaEmail(resolvedEmail);
+      return;
     }
+
+    const tokenValue = data?.token || data?.accessToken;
+    if (tokenValue) {
+      syncAuthenticatedUser(data, resolvedEmail);
+      setRequiresMfaChoice(false);
+      setRequiresMFA(false);
+      setRequiresEmailOtpInput(false);
+      if (data.requiresMFASetup) {
+        setRequiresMFASetup(true);
+      }
+      return;
+    }
+
+    setRequiresMfaChoice(true);
   };
 
   const handleVerifyLoginMFA = async (e: React.FormEvent) => {
@@ -445,19 +479,10 @@ export default function App() {
       const data = await res.json();
 
       if (res.ok) {
-        localStorage.setItem('sso_token', data.token);
-        if (data.user) {
-          const userData = {
-            ...data.user,
-            name: data.user.name && data.user.name !== 'Updated Name' 
-              ? data.user.name 
-              : (data.user.username || data.user.email?.split('@')[0] || 'Student')
-          };
-          localStorage.setItem('sso_user', JSON.stringify(userData));
-          setUser(userData);
-        }
-        setToken(data.token);
+        syncAuthenticatedUser(data, targetEmail);
         setRequiresMFA(false);
+        setRequiresMfaChoice(false);
+        setRequiresEmailOtpInput(false);
       } else {
         setMfaError(data.error || 'Invalid authenticator code');
       }
@@ -466,7 +491,6 @@ export default function App() {
     }
   };
 
-  
   const handleLogout = () => {
     localStorage.removeItem('sso_token');
     localStorage.removeItem('sso_user');
@@ -790,17 +814,9 @@ export default function App() {
 
           <LoginWith2FA 
             onLoginSuccess={(data) => {
-              localStorage.setItem('sso_token', data.token);
-              if (data.user) {
-                const userData = {
-                  ...data.user,
-                  name: data.user.name || data.user.username || data.user.email?.split('@')[0] || 'Student'
-                };
-                localStorage.setItem('sso_user', JSON.stringify(userData));
-                setUser(userData);
-              }
-              setToken(data.token);
+              syncAuthenticatedUser(data, data?.user?.email || mfaEmail);
               setRequiresEmailOtpInput(false);
+              setRequiresMfaChoice(false);
             }} 
           />
         </div>
@@ -839,8 +855,8 @@ export default function App() {
         token={token} 
         onSetupSuccess={(newToken) => {
           localStorage.setItem('sso_token', newToken);
+          setToken(newToken);
           setRequiresMFASetup(false);
-          window.location.reload();
         }} 
       />
     );
@@ -999,34 +1015,33 @@ export default function App() {
 
       {/* Modal View for Auth & Profile Manager */}
       {showAuthModal && (
-  <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-    <AuthAndProfileModal
-      currentUser={currentUserAccount}
-      onLoginSuccess={(account) => {
-        setCurrentUserAccount(account);
-        // Sync global user state & localStorage so the welcome banner updates instantly!
-        setUser((prev: any) => {
-          const updatedUser = { 
-            ...prev, 
-            name: account.username,
-            username: account.username, 
-            role: account.role 
-          };
-          localStorage.setItem('sso_user', JSON.stringify(updatedUser));
-          return updatedUser;
-        });
-        setShowAuthModal(false);
-      }}
-      onLogout={() => {
-        setCurrentUserAccount(null);
-        setShowAuthModal(false);
-      }}
-      onBack={() => setShowAuthModal(false)}
-    />
-  </div>
-)}
-      
-      
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <AuthAndProfileModal
+            currentUser={currentUserAccount}
+            onLoginSuccess={(account) => {
+              syncAuthenticatedUser(
+                {
+                  account,
+                  user: {
+                    ...user,
+                    email: account.email || user?.email || currentUserAccount?.email,
+                    name: account.username,
+                    username: account.username,
+                    role: account.role,
+                  },
+                },
+                user?.email || currentUserAccount?.email
+              );
+              setShowAuthModal(false);
+            }}
+            onLogout={() => {
+              setCurrentUserAccount(null);
+              setShowAuthModal(false);
+            }}
+            onBack={() => setShowAuthModal(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
