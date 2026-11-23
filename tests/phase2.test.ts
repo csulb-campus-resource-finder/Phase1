@@ -1,8 +1,8 @@
 import request from 'supertest';
 import express from 'express';
-import { MarketplaceService } from '../marketplace/marketplaceService.js';
-import { RewardsEngine } from '../gamification/rewardsEngine.js';
-import { EventsAndClubsService } from '../events/eventsService.js';
+import { MarketplaceService } from '../src/marketplace/marketplaceService.js';
+import { RewardsEngine } from '../src/gamification/rewardsEngine.js';
+import { EventsAndClubsService } from '../src/events/eventsService.js';
 
 // Initialize a dedicated test Express application mirroring main server routes
 const app = express();
