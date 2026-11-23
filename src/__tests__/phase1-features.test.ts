@@ -1,6 +1,33 @@
 import request from 'supertest';
+import http from 'http';
 
 const API_BASE = 'http://localhost:3001';
+
+let serverInstance: http.Server | null = null;
+
+beforeAll(async () => {
+  process.env.PORT = process.env.PORT || '3001';
+  process.env.DATABASE_URL =
+    process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test_db?schema=public';
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'ci-test-jwt-secret';
+
+  const srvModule: any = await import('../server.js');
+  const candidate = srvModule.server || srvModule.httpServer;
+  if (candidate && typeof candidate.listen === 'function' && !candidate.listening) {
+    await new Promise<void>((resolve) => {
+      candidate.listen(3001, () => resolve());
+    });
+    serverInstance = candidate;
+  } else {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+});
+
+afterAll(async () => {
+  if (serverInstance && serverInstance.listening) {
+    await new Promise<void>((resolve) => serverInstance!.close(() => resolve()));
+  }
+});
 
 describe('Phase 1 Comprehensive Feature Test Suite', () => {
   const testEmail = 'nadhirah.michael-ho01@student.csulb.edu';
