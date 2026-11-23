@@ -1,8 +1,8 @@
 import request from 'supertest';
 import express from 'express';
-import { MarketplaceService } from '../src/marketplace/marketplaceService.js';
-import { RewardsEngine } from '../src/gamification/rewardsEngine.js';
-import { EventsAndClubsService } from '../src/events/eventsService.js';
+import { MarketplaceService } from '../marketplace/marketplaceService.js';
+import { RewardsEngine } from '../gamification/rewardsEngine.js';
+import { EventsAndClubsService } from '../events/eventsService.js';
 
 // Initialize a dedicated test Express application mirroring main server routes
 const app = express();
@@ -143,6 +143,7 @@ describe('Phase 2: Community, Marketplace, Gamification & Events API', () => {
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty('error', 'Already RSVPed or invalid event');
     });
+
     test('POST /api/events/:id/rsvp - should award 10 reward points on a successful RSVP', async () => {
       const eventsRes = await request(app).get('/api/events');
       // Pick an event that testUserId hasn't RSVPed to yet if multiple exist
