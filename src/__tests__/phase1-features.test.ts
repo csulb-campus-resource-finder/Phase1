@@ -6,17 +6,6 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
   const testEmail = 'nadhirah.michael-ho01@student.csulb.edu';
   const testPassword = 'password123';
 
-  beforeAll(async () => {
-    await request(API_BASE)
-      .post('/api/v1/auth/register')
-      .send({
-        email: testEmail,
-        username: 'NadhirahTest',
-        password: testPassword,
-        role: 'Student Buyer',
-      });
-  });
-
   // ==========================================
   // USE CASE 1: User Account Creation, SSO & Login
   // ==========================================
@@ -36,7 +25,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
 
     it('should trigger email OTP verification upon valid login attempt', async () => {
       const res = await request(API_BASE)
-        .post('/api/v1/auth/login')
+        .post('/api/auth/login')
         .send({ email: testEmail, password: testPassword });
 
       expect(res.status).toBe(200);
@@ -45,7 +34,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
 
     it('should reject non-CSULB email domains during authentication', async () => {
       const res = await request(API_BASE)
-        .post('/api/v1/auth/login')
+        .post('/api/auth/login')
         .send({ email: 'attacker@gmail.com', password: 'password123' });
 
       expect(res.status).toBe(400);
