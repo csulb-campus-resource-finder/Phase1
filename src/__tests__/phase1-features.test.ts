@@ -1,31 +1,42 @@
 import request from 'supertest';
-import http from 'http';
+import { spawn, ChildProcess } from 'child_process';
 
 const API_BASE = 'http://localhost:3001';
 
-let serverInstance: http.Server | null = null;
+let serverProc: ChildProcess | null = null;
+
+async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.status < 500) return;
+    } catch {
+      // Server not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
 
 beforeAll(async () => {
-  process.env.PORT = process.env.PORT || '3001';
-  process.env.DATABASE_URL =
-    process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test_db?schema=public';
-  process.env.JWT_SECRET = process.env.JWT_SECRET || 'ci-test-jwt-secret';
+  serverProc = spawn('npx', ['tsx', 'src/server.ts'], {
+    stdio: 'ignore',
+    shell: true,
+    env: {
+      ...process.env,
+      PORT: '3001',
+      DATABASE_URL:
+        process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test_db?schema=public',
+      JWT_SECRET: process.env.JWT_SECRET || 'ci-test-jwt-secret',
+    },
+  });
 
-  const srvModule: any = await import('../server.js');
-  const candidate = srvModule.server || srvModule.httpServer;
-  if (candidate && typeof candidate.listen === 'function' && !candidate.listening) {
-    await new Promise<void>((resolve) => {
-      candidate.listen(3001, () => resolve());
-    });
-    serverInstance = candidate;
-  } else {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-});
+  await waitForServer(`${API_BASE}/`);
+}, 20000);
 
 afterAll(async () => {
-  if (serverInstance && serverInstance.listening) {
-    await new Promise<void>((resolve) => serverInstance!.close(() => resolve()));
+  if (serverProc && !serverProc.killed) {
+    serverProc.kill('SIGTERM');
   }
 });
 
