@@ -6,6 +6,17 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
   const testEmail = 'nadhirah.michael-ho01@student.csulb.edu';
   const testPassword = 'password123';
 
+  beforeAll(async () => {
+    await request(API_BASE)
+      .post('/api/v1/auth/register')
+      .send({
+        email: testEmail,
+        username: 'NadhirahTest',
+        password: testPassword,
+        role: 'Student Buyer',
+      });
+  });
+
   // ==========================================
   // USE CASE 1: User Account Creation, SSO & Login
   // ==========================================
@@ -17,7 +28,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
           email: 'test.student01@student.csulb.edu',
           username: 'TestStudent',
           password: 'securePassword123',
-          role: 'Student Buyer'
+          role: 'Student Buyer',
         });
 
       expect([200, 400]).toContain(res.status);
@@ -25,7 +36,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
 
     it('should trigger email OTP verification upon valid login attempt', async () => {
       const res = await request(API_BASE)
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: testEmail, password: testPassword });
 
       expect(res.status).toBe(200);
@@ -34,7 +45,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
 
     it('should reject non-CSULB email domains during authentication', async () => {
       const res = await request(API_BASE)
-        .post('/api/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: 'attacker@gmail.com', password: 'password123' });
 
       expect(res.status).toBe(400);
@@ -58,14 +69,13 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
   describe('Use Case 3: Add Class Schedule & Indoor Floor Plan Navigator', () => {
     it('should protect schedule endpoints against unauthenticated requests', async () => {
       const res = await request(API_BASE).get('/api/schedules/my-schedule');
-      // 👈 Updated from 403 to expect 401 Unauthorized
       expect(res.status).toBe(401);
     });
 
     it('should reject invalid .ics file uploads without proper multipart headers or file payloads', async () => {
       const res = await request(API_BASE)
         .post('/api/v1/schedule/upload-ics')
-        .set('Authorization', `Bearer mock_token`);
+        .set('Authorization', 'Bearer mock_token');
 
       expect(res.status).toBe(400);
       expect(res.body.detail).toBe('Please upload a valid .ics file.');
@@ -74,7 +84,7 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
     it('should reject invalid OCR image uploads without proper file payloads', async () => {
       const res = await request(API_BASE)
         .post('/api/v1/schedule/upload-image')
-        .set('Authorization', `Bearer mock_token`);
+        .set('Authorization', 'Bearer mock_token');
 
       expect(res.status).toBe(400);
       expect(res.body.detail).toBe('Please upload a valid image file.');
@@ -97,7 +107,6 @@ describe('Phase 1 Comprehensive Feature Test Suite', () => {
   describe('Use Case 5: Redirect to Official Campus Resources & UI Navigation', () => {
     it('should verify API routing prefix availability for campus navigation', async () => {
       const res = await request(API_BASE).get('/api/v1/profile');
-      // 👈 Added 200 since the backend successfully falls back to the default seeded user profile
       expect([200, 401, 403, 404]).toContain(res.status);
     });
   });
