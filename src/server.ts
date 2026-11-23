@@ -794,28 +794,32 @@ app.post('/api/auth/login', async (req: any, res: any) => {
 
     const otp = authService.generateAndStoreOtp(email);
 
-    await transporter.sendMail({
-      from: `"CSULB Resource Finder Security" <${process.env.EMAIL_USER}>`,
-      replyTo: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Your Login Verification Code',
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F7F7F5; padding: 30px 0;">
-          <div style="max-width: 500px; margin: 0 auto; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <div style="background-color: #002B49; padding: 20px 24px; text-align: left;">
-              <h2 style="color: #FFC72C; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.5px;">CSULB Security</h2>
-            </div>
-            <div style="padding: 28px 24px; color: #111827;">
-              <p style="margin-top: 0; font-size: 15px; color: #4B5563;">Your login verification code is:</p>
-              <div style="background: #F9FAFB; border: 1.5px solid #E5E7EB; border-radius: 12px; padding: 18px; text-align: center; margin: 20px 0;">
-                <span style="font-size: 32px; font-weight: 900; color: #D97706; letter-spacing: 6px; font-family: monospace;">${otp}</span>
+    const hasMailCredentials = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+    if (process.env.NODE_ENV !== 'test' && hasMailCredentials) {
+      await transporter.sendMail({
+        from: `"CSULB Resource Finder Security" <${process.env.EMAIL_USER}>`,
+        replyTo: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Your Login Verification Code',
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F7F7F5; padding: 30px 0;">
+            <div style="max-width: 500px; margin: 0 auto; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <div style="background-color: #002B49; padding: 20px 24px; text-align: left;">
+                <h2 style="color: #FFC72C; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.5px;">CSULB Security</h2>
               </div>
-              <p style="font-size: 14px; color: #6B7280; margin-bottom: 24px;">This code expires in <strong>5 minutes</strong>.</p>
+              <div style="padding: 28px 24px; color: #111827;">
+                <p style="margin-top: 0; font-size: 15px; color: #4B5563;">Your login verification code is:</p>
+                <div style="background: #F9FAFB; border: 1.5px solid #E5E7EB; border-radius: 12px; padding: 18px; text-align: center; margin: 20px 0;">
+                  <span style="font-size: 32px; font-weight: 900; color: #D97706; letter-spacing: 6px; font-family: monospace;">${otp}</span>
+                </div>
+                <p style="font-size: 14px; color: #6B7280; margin-bottom: 24px;">This code expires in <strong>5 minutes</strong>.</p>
+              </div>
             </div>
           </div>
-        </div>
-      `,
-    });
+        `,
+      });
+    }
+
 
     return res.status(200).json({
       requires2FA: true,
