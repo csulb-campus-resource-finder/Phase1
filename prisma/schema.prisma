@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String            @id
+  email            String            @unique
+  name             String
+  points           Int               @default(340)
+  badges           String[]          @default(["New Student", "Campus Helper"])
+  createdAt        DateTime          @default(now())
+  rsvps            EventRSVP[]
+  posts            MarketplaceItem[]
+  receivedMessages Message[]         @relation("ReceivedMessages")
+  sentMessages     Message[]         @relation("SentMessages")
+}
+
+model SafeMeetupZone {
+  id          String            @id @default(uuid())
+  zoneName    String            @unique
+  description String
+  items       MarketplaceItem[]
+}
+
+model MarketplaceItem {
+  id               String         @id @default(uuid())
+  sellerId         String
+  title            String
+  description      String
+  price            Float
+  category         String
+  imageUrl         String
+  safeMeetupZoneId String
+  createdAt        DateTime       @default(now())
+  safeMeetupZone   SafeMeetupZone @relation(fields: [safeMeetupZoneId], references: [id])
+  seller           User           @relation(fields: [sellerId], references: [id])
+  messages         Message[]
+}
+
+model Message {
+  id         String          @id @default(uuid())
+  listingId  String
+  senderId   String
+  receiverId String
+  content    String
+  createdAt  DateTime        @default(now())
+  listing    MarketplaceItem @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  receiver   User            @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender     User            @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, createdAt])
+  @@index([senderId, receiverId])
+}
+
+model StudentOrganization {
+  id          String        @id @default(uuid())
+  orgName     String        @unique
+  email       String
+  discordLink String
+  events      CampusEvent[]
+}
+
+model CampusEvent {
+  id           String              @id @default(uuid())
+  orgId        String
+  eventName    String
+  eventDate    DateTime
+  location     String
+  organization StudentOrganization @relation(fields: [orgId], references: [id])
+  rsvps        EventRSVP[]
+}
+
+model EventRSVP {
+  id      String      @id @default(uuid())
+  eventId String
+  userId  String
+  status  String      @default("Attending")
+  event   CampusEvent @relation(fields: [eventId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+}

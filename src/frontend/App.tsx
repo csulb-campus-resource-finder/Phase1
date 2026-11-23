@@ -22,6 +22,18 @@ import MFASetup from './MFASetup';
 import { AboutPage } from './AboutPage';
 // Imports the AuthAndProfileModal component for login, registration, and role management.
 import { AuthAndProfileModal } from './AuthandProfileModal';
+// Phase 2 feature imports
+import { SellerChatModal } from '../SellerChatModal.js';
+import { EventsAndClubsService, CampusEvent, StudentClub } from '../events/eventsService.js';
+// At top of App.tsx with your other imports:
+import {
+  LiveEventsService,
+  CSULBEvent,
+  CSULBOrganization,
+  CSULB_ENGAGE_EVENTS_URL,
+  CSULB_ENGAGE_ORGS_URL,
+} from '../events/liveEventsService.js';
+import { getActiveMarketplaceSession, buildMarketplaceHeaders } from '../utils/marketplaceAuth.js';
 
 // Dynamically resolves and creates URL references to asset files.
 const logoImage = new URL('../logo.png', import.meta.url).href;
@@ -46,6 +58,670 @@ interface UserAccount {
   email: string;
   username: string;
   role: string;
+}
+
+// Phase 2 interfaces & RewardsEngine
+interface Listing {
+  id: number;
+  seller_email: string;
+  title: string;
+  description: string;
+  price: number;
+  image_data: string | null;
+  created_at: string;
+}
+
+export interface UserGamificationProfile {
+  userId: string;
+  points: number;
+  badges: string[];
+}
+
+export interface RedeemableBadge {
+  id: string;
+  name: string;
+  cost: number;
+  icon: string;
+  description: string;
+  category: 'Badge' | 'Reward' | 'Physical Award';
+}
+
+export class RewardsEngine {
+  private profiles: Map<string, UserGamificationProfile> = new Map();
+
+  private catalog: RedeemableBadge[] = [
+    { id: 'b1', name: 'Campus VIP', cost: 150, icon: '🌟', description: 'Exclusive badge highlighting top community contributors.', category: 'Badge' },
+    { id: 'b2', name: 'Night Owl Coder', cost: 200, icon: '💻', description: 'Awarded for late-night commits and repository updates.', category: 'Badge' },
+    { id: 'b3', name: 'Beach Legend', cost: 350, icon: '🌴', description: 'Ultimate CSULB student status badge with priority perk multipliers.', category: 'Badge' },
+    { id: 'b4', name: 'Hackathon Champion', cost: 250, icon: '⚡', description: 'Unlocked by building top-tier campus projects and winning hackathons.', category: 'Badge' },
+    { id: 'b5', name: 'Open Source Contributor', cost: 180, icon: '🌐', description: 'Recognizes active participation in student developer organizations and public repositories.', category: 'Badge' },
+    { id: 'b6', name: "Dean's List Achiever", cost: 300, icon: '🎓', description: 'Showcases academic excellence and high cumulative GPA status.', category: 'Badge' },
+    { id: 'b7', name: 'Peer Mentor', cost: 220, icon: '🤝', description: 'Awarded to tutors and mentors supporting fellow classmates.', category: 'Badge' },
+    { id: 'r1', name: '$10 Campus Bookstore Gift Card', cost: 300, icon: '📚', description: 'Valid for textbooks, stationery, and CSULB merch.', category: 'Reward' },
+    { id: 'r2', name: 'Free Coffee Pass at USU', cost: 100, icon: '☕', description: 'Enjoy a free artisan drink at the University Student Union.', category: 'Reward' },
+    { id: 'p1', name: 'CSULB Branded Lanyard & ID Holder', cost: 120, icon: '🔑', description: 'Physical award pickup at the USU Information Desk.', category: 'Physical Award' },
+    { id: 'p2', name: 'Stainless Steel Beach Water Bottle', cost: 250, icon: '🍼', description: 'Insulated campus water bottle to keep drinks cold all day.', category: 'Physical Award' },
+    { id: 'p3', name: 'Official CSULB Embroidered Hoodie', cost: 600, icon: '🧥', description: 'Cozy gold & black campus hoodie for chilly lecture halls.', category: 'Physical Award' },
+  ];
+
+  private storageKey(userId: string): string {
+    return `csulb_perk_points_${(userId || 'guest').trim().toLowerCase()}`;
+  }
+
+  public awardPoints(userId: string, points: number, _reason: string): UserGamificationProfile {
+    const profile = this.getProfile(userId);
+    profile.points += points;
+
+    if (profile.points >= 400 && !profile.badges.includes('Community Pillar')) {
+      profile.badges.push('Community Pillar');
+    }
+    if (profile.points >= 500 && !profile.badges.includes('Beach Legend')) {
+      profile.badges.push('Beach Legend');
+    }
+
+    this.profiles.set(userId, profile);
+    try {
+      localStorage.setItem(this.storageKey(userId), String(profile.points));
+    } catch {}
+    return profile;
+  }
+
+  public getProfile(userId: string): UserGamificationProfile {
+    const existing = this.profiles.get(userId);
+    let points = existing ? existing.points : 345;
+    try {
+      const saved = localStorage.getItem(this.storageKey(userId));
+      if (saved !== null && !Number.isNaN(Number(saved))) {
+        points = Number(saved);
+      }
+    } catch {}
+    const profile: UserGamificationProfile = existing
+      ? { ...existing, points }
+      : { userId, points, badges: ['New Student', 'Campus Helper'] };
+    this.profiles.set(userId, profile);
+    return profile;
+  }
+
+  public getCatalog(): RedeemableBadge[] {
+    return this.catalog;
+  }
+
+  public purchaseItem(userId: string, itemId: string): { success: boolean; message: string; profile: UserGamificationProfile } {
+    const profile = this.getProfile(userId);
+    const item = this.catalog.find((i) => i.id === itemId);
+
+    if (!item) {
+      return { success: false, message: 'Item not found in catalog.', profile };
+    }
+
+    if (profile.points < item.cost) {
+      return { success: false, message: `Insufficient points! You need ${item.cost} PTS but only have ${profile.points} PTS.`, profile };
+    }
+
+    profile.points -= item.cost;
+
+    if (item.category === 'Badge' && !profile.badges.includes(item.name)) {
+      profile.badges.push(item.name);
+    }
+
+    this.profiles.set(userId, profile);
+    try {
+      localStorage.setItem(this.storageKey(userId), String(profile.points));
+    } catch {}
+    return {
+      success: true,
+      message: `Successfully checked out "${item.name}"! Check your email for pickup/redemption instructions.`,
+      profile,
+    };
+  }
+}
+
+const eventsService = new EventsAndClubsService();
+const liveEventsService = new LiveEventsService();
+const rewardsEngine = new RewardsEngine();
+
+function CreateListingFormWithPhoto({
+  defaultSellerEmail,
+  currentUserRole,
+  onBack,
+  onPostSuccess,
+}: {
+  defaultSellerEmail: string;
+  currentUserRole: string;
+  onBack: () => void;
+  onPostSuccess: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [price, setPrice] = useState('');
+  const [description, setDescription] = useState('');
+  const [sellerEmail, setSellerEmail] = useState(defaultSellerEmail);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const effectiveEmail = (sellerEmail || defaultSellerEmail || getActiveMarketplaceSession()?.email || '')
+      .trim()
+      .toLowerCase();
+    const effectiveRole = (currentUserRole || getActiveMarketplaceSession()?.role || '').trim();
+
+    if (!effectiveEmail || !effectiveRole) {
+      alert('You must be signed in with both an email address and a role to publish a listing.');
+      return;
+    }
+
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('price', price);
+    formData.append('description', description);
+    if (imageFile) {
+      formData.append('image', imageFile);
+    }
+
+    try {
+      const headers = buildMarketplaceHeaders(false);
+      headers['x-user-email'] = effectiveEmail;
+      headers['x-user-role'] = effectiveRole;
+
+      const res = await fetch('/api/v1/marketplace/listings', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (res.ok) {
+        rewardsEngine.awardPoints(effectiveEmail, 25, 'Published a marketplace listing with photo');
+        alert('Listing published successfully with photo (+25 reward points earned)!');
+        onPostSuccess();
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Failed to publish listing.');
+      }
+    } catch {
+      alert('Network error publishing listing.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ background: '#FFFFFF', padding: '1.75rem', borderRadius: '1.25rem', marginBottom: '24px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px rgba(0,0,0,0.04)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h3 style={{ margin: 0, color: '#111827', fontSize: '18px', fontWeight: '800' }}>🛍️ Create Marketplace Listing</h3>
+        <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', fontWeight: 'bold', cursor: 'pointer', color: '#6B7280' }}>✕ Cancel</button>
+      </div>
+
+      <div style={{ marginBottom: '14px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#374151' }}>Seller Email Address</label>
+        <input
+          type="email"
+          value={sellerEmail}
+          onChange={(e) => setSellerEmail(e.target.value)}
+          placeholder="seller@student.csulb.edu"
+          required
+          style={{ width: '100%', padding: '10px', borderRadius: '0.5rem', border: '1px solid #D1D5DB', boxSizing: 'border-box', background: '#F9FAFB' }}
+        />
+      </div>
+
+      <div style={{ marginBottom: '14px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#374151' }}>Item Title</label>
+        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. CSULB Textbook - CECS 323" required style={{ width: '100%', padding: '10px', borderRadius: '0.5rem', border: '1px solid #D1D5DB', boxSizing: 'border-box' }} />
+      </div>
+
+      <div style={{ marginBottom: '14px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#374151' }}>Price ($)</label>
+        <input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="45.00" required style={{ width: '100%', padding: '10px', borderRadius: '0.5rem', border: '1px solid #D1D5DB', boxSizing: 'border-box' }} />
+      </div>
+
+      <div style={{ marginBottom: '14px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#374151' }}>Description</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Condition, pickup location on campus..." rows={3} style={{ width: '100%', padding: '10px', borderRadius: '0.5rem', border: '1px solid #D1D5DB', boxSizing: 'border-box' }} />
+      </div>
+
+      <div style={{ marginBottom: '16px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', marginBottom: '6px', color: '#374151' }}>Upload Listing Photo</label>
+        <input type="file" accept="image/*" onChange={handleImageChange} style={{ fontSize: '14px', width: '100%', padding: '8px', background: '#F9FAFB', border: '1px solid #D1D5DB', borderRadius: '0.5rem' }} />
+        {imagePreview && (
+          <div style={{ marginTop: '10px', textAlign: 'center' }}>
+            <img src={imagePreview} alt="Preview" style={{ maxWidth: '100%', height: '140px', objectFit: 'cover', borderRadius: '0.5rem', border: '1px solid #E5E7EB' }} />
+          </div>
+        )}
+      </div>
+
+      <button type="submit" disabled={loading} style={{ width: '100%', background: '#FFC72C', color: '#111827', padding: '12px', border: 'none', borderRadius: '0.75rem', fontWeight: '800', cursor: 'pointer' }}>
+        {loading ? 'Publishing to NeonDB...' : 'Publish Listing'}
+      </button>
+    </form>
+  );
+}
+
+function RewardsShopView({ profile, onCheckout }: { profile: UserGamificationProfile; onCheckout: (itemId: string) => void }) {
+  const catalog = rewardsEngine.getCatalog();
+
+  return (
+    <div>
+      <div style={{ background: 'linear-gradient(135deg, #002B49 0%, #004b7a 100%)', borderRadius: '1rem', padding: '2rem', color: '#FFFFFF', marginBottom: '2rem', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+        <span style={{ background: '#FFC72C', color: '#002B49', padding: '4px 10px', borderRadius: '1rem', fontSize: '12px', fontWeight: '900', textTransform: 'uppercase' }}>
+          Campus Rewards & Unlockable Badges
+        </span>
+        <h2 style={{ margin: '12px 0 6px 0', fontSize: '28px', fontWeight: '900' }}>Perk Points Store & Badges</h2>
+        <p style={{ margin: 0, color: '#E0F2FE', fontSize: '15px' }}>Spend your points to unlock achievement badges, gift cards, and physical campus awards!</p>
+
+        <div style={{ display: 'flex', gap: '30px', marginTop: '20px', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontSize: '13px', color: '#93C5FD', display: 'block' }}>Your Balance</span>
+            <span style={{ fontSize: '36px', fontWeight: '900', color: '#FFC72C' }}>{profile.points} PTS</span>
+          </div>
+          <div>
+            <span style={{ fontSize: '13px', color: '#93C5FD', display: 'block' }}>Active Badges</span>
+            <span style={{ fontSize: '24px', fontWeight: '800' }}>{profile.badges.length} Unlocked</span>
+          </div>
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '14px' }}>🏅 Your Unlocked Badges</h3>
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '32px' }}>
+        {profile.badges.map((badge, idx) => (
+          <div key={idx} style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '24px' }}>✨</span>
+            <div>
+              <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#111827' }}>{badge}</h4>
+              <span style={{ fontSize: '11px', color: '#059669', fontWeight: '700' }}>Equipped Profile Badge</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '14px' }}>🛍️ Catalog & Checkout Store</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' }}>
+        {catalog.map((item) => {
+          const canAfford = profile.points >= item.cost;
+          const alreadyOwned = item.category === 'Badge' && profile.badges.includes(item.name);
+
+          let badgeBg = '#F3E8FF';
+          let badgeColor = '#7C3AED';
+          if (item.category === 'Reward') {
+            badgeBg = '#E0F2FE';
+            badgeColor = '#0369A1';
+          } else if (item.category === 'Physical Award') {
+            badgeBg = '#FEF3C7';
+            badgeColor = '#D97706';
+          }
+
+          return (
+            <div key={item.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '32px' }}>{item.icon}</span>
+                  <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 8px', borderRadius: '0.5rem', background: badgeBg, color: badgeColor }}>
+                    {item.category}
+                  </span>
+                </div>
+                <h4 style={{ margin: '12px 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#111827' }}>{item.name}</h4>
+                <p style={{ fontSize: '13px', color: '#4B5563', marginBottom: '12px' }}>{item.description}</p>
+                <p style={{ fontSize: '15px', fontWeight: '900', color: '#059669', margin: 0 }}>Price: {item.cost} PTS</p>
+              </div>
+
+              <button
+                onClick={() => onCheckout(item.id)}
+                disabled={!canAfford || alreadyOwned}
+                style={{
+                  marginTop: '16px',
+                  width: '100%',
+                  background: alreadyOwned ? '#10B981' : canAfford ? '#002B49' : '#E5E7EB',
+                  color: alreadyOwned ? '#FFFFFF' : canAfford ? '#FFC72C' : '#9CA3AF',
+                  border: 'none',
+                  padding: '10px',
+                  borderRadius: '0.75rem',
+                  fontWeight: '800',
+                  cursor: canAfford && !alreadyOwned ? 'pointer' : 'not-allowed',
+                  fontSize: '13px',
+                }}
+              >
+                {alreadyOwned ? '✓ Owned & Unlocked' : canAfford ? '🛒 Checkout & Redeem' : 'Need More Points'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CampusEventsAndClubsView({
+  currentUserEmail,
+  onRsvpSuccess,
+}: {
+  currentUserEmail: string;
+  onRsvpSuccess: () => void;
+}) {
+  const [events, setEvents] = useState<CampusEvent[]>(eventsService.getEvents());
+  const [clubs] = useState<StudentClub[]>(eventsService.getClubs());
+  const [liveEvents, setLiveEvents] = useState<CSULBEvent[]>([]);
+  const [liveOrgs, setLiveOrgs] = useState<CSULBOrganization[]>([]);
+  const [loadingLive, setLoadingLive] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      liveEventsService.fetchLiveEvents(),
+      liveEventsService.fetchLiveOrganizations(),
+    ])
+      .then(([eventItems, orgItems]) => {
+        setLiveEvents(eventItems);
+        setLiveOrgs(orgItems);
+      })
+      .catch((err) => console.error('Failed to fetch live CSULB Engage data', err))
+      .finally(() => setLoadingLive(false));
+  }, []);
+
+  const handleRSVP = async (ev: CampusEvent) => {
+    const success = eventsService.rsvpEvent(ev.id, currentUserEmail);
+    if (success) {
+      rewardsEngine.awardPoints(currentUserEmail, 20, 'RSVPed for campus event');
+      setEvents([...eventsService.getEvents()]);
+      onRsvpSuccess();
+
+      // Trigger backend RSVP confirmation email
+      try {
+        let res = await fetch('/api/v1/events/rsvp-confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: currentUserEmail,
+            eventId: ev.id,
+            eventTitle: ev.title,
+            eventDate: ev.date,
+            eventLocation: ev.location,
+            organization: ev.organization,
+          }),
+        });
+
+        if (res.status === 404) {
+          res = await fetch('/api/events/rsvp-confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: currentUserEmail,
+              eventId: ev.id,
+              eventTitle: ev.title,
+              eventDate: ev.date,
+              eventLocation: ev.location,
+              organization: ev.organization,
+            }),
+          });
+        }
+
+        if (res.ok) {
+          alert(`Successfully RSVPed for ${ev.title}! (+20 reward points earned) A confirmation email has been sent to ${currentUserEmail}.`);
+        } else {
+          alert(`Successfully RSVPed for ${ev.title}! (+20 reward points earned)`);
+        }
+      } catch (err) {
+        console.error('RSVP confirmation email error:', err);
+        alert(`Successfully RSVPed for ${ev.title}! (+20 reward points earned)`);
+      }
+    } else {
+      alert('You have already RSVPed for this event.');
+    }
+  };
+  return (
+    <div>
+      <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '16px' }}>
+        🎉 Campus Events & RSVP
+      </h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        {events.map((ev) => {
+          const isRsvped = ev.attendees?.includes(currentUserEmail);
+          return (
+            <div key={ev.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#002B49', background: '#E0F2FE', padding: '3px 8px', borderRadius: '0.5rem' }}>{ev.organization}</span>
+                <h4 style={{ margin: '10px 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#111827' }}>{ev.title}</h4>
+                <p style={{ fontSize: '13px', color: '#4B5563', margin: '4px 0' }}>📅 {ev.date}</p>
+                <p style={{ fontSize: '13px', color: '#4B5563', margin: '4px 0' }}>📍 {ev.location}</p>
+                <p style={{ fontSize: '12px', color: '#059669', fontWeight: '700', marginTop: '8px' }}>
+                  👥 {ev.attendees?.length || 0} Students Attending
+                </p>
+              </div>
+              <button
+                onClick={() => handleRSVP(ev)}
+                style={{
+                  marginTop: '16px',
+                  width: '100%',
+                  background: isRsvped ? '#10B981' : '#002B49',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '10px',
+                  borderRadius: '0.75rem',
+                  fontWeight: '800',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                }}
+              >
+                {isRsvped ? '✓ RSVP Confirmed' : '🎟️ RSVP for Event'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Live CSULB Engage Events */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', margin: 0 }}>
+          📡 Live CSULB Engage Events
+        </h3>
+        <a
+          href={CSULB_ENGAGE_EVENTS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: '13px', fontWeight: '800', color: '#002B49', textDecoration: 'underline' }}
+        >
+          View All on BeachSync Events ↗
+        </a>
+      </div>
+
+      {loadingLive ? (
+        <p style={{ color: '#6B7280', fontSize: '14px', marginBottom: '32px' }}>Loading live CSULB Engage events...</p>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+          {liveEvents.slice(0, 6).map((item) => (
+            <div key={item.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                {item.organization && (
+                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#002B49', background: '#FEF3C7', padding: '3px 8px', borderRadius: '0.5rem' }}>
+                    {item.organization}
+                  </span>
+                )}
+                <h4 style={{ margin: '10px 0 6px 0', fontSize: '15px', fontWeight: '800', color: '#111827' }}>{item.title}</h4>
+                <p style={{ fontSize: '12px', color: '#4B5563', margin: '4px 0' }}>📅 {item.date}</p>
+                <p style={{ fontSize: '12px', color: '#4B5563', margin: '4px 0' }}>📍 {item.location}</p>
+              </div>
+              <a
+                href={item.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  marginTop: '16px',
+                  display: 'block',
+                  textAlign: 'center',
+                  background: '#002B49',
+                  color: '#FFC72C',
+                  textDecoration: 'none',
+                  padding: '8px',
+                  borderRadius: '0.75rem',
+                  fontWeight: '800',
+                  fontSize: '12px',
+                }}
+              >
+                🔗 View Event on Engage
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Live CSULB Engage Organizations */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', margin: 0 }}>
+          🏛️ CSULB Student Organizations (Engage)
+        </h3>
+        <a
+          href={CSULB_ENGAGE_ORGS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: '13px', fontWeight: '800', color: '#002B49', textDecoration: 'underline' }}
+        >
+          Explore All Organizations ↗
+        </a>
+      </div>
+
+      {!loadingLive && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+          {liveOrgs.slice(0, 6).map((org) => (
+            <div key={org.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#0369A1', background: '#E0F2FE', padding: '3px 8px', borderRadius: '0.5rem' }}>
+                  {org.category}
+                </span>
+                <h4 style={{ margin: '10px 0 6px 0', fontSize: '15px', fontWeight: '800', color: '#111827' }}>{org.name}</h4>
+                <p style={{ fontSize: '12px', color: '#4B5563', margin: '4px 0', lineHeight: '1.4' }}>{org.summary}</p>
+              </div>
+              <a
+                href={org.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  marginTop: '16px',
+                  display: 'block',
+                  textAlign: 'center',
+                  background: '#FFC72C',
+                  color: '#002B49',
+                  textDecoration: 'none',
+                  padding: '8px',
+                  borderRadius: '0.75rem',
+                  fontWeight: '800',
+                  fontSize: '12px',
+                }}
+              >
+                🌐 View Organization
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', marginBottom: '16px' }}>
+        🤝 Student Clubs & Discord Links
+      </h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' }}>
+        {clubs.map((club) => (
+          <div key={club.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <span style={{ fontSize: '11px', fontWeight: '700', color: '#7C3AED', background: '#F3E8FF', padding: '3px 8px', borderRadius: '0.5rem' }}>{club.category}</span>
+              <h4 style={{ margin: '10px 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#111827' }}>{club.name}</h4>
+              <p style={{ fontSize: '13px', color: '#4B5563', margin: '4px 0' }}>🕒 {club.meetingTime}</p>
+              <p style={{ fontSize: '13px', color: '#4B5563', margin: '4px 0' }}>📍 {club.location}</p>
+            </div>
+            <a
+              href={club.discordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                marginTop: '16px',
+                display: 'block',
+                textAlign: 'center',
+                background: '#5865F2',
+                color: '#FFFFFF',
+                textDecoration: 'none',
+                padding: '10px',
+                borderRadius: '0.75rem',
+                fontWeight: '800',
+                fontSize: '13px',
+              }}
+            >
+              💬 Join Discord Community
+            </a>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PostgresMarketplaceFeed({ refreshKey, onOpenChat }: { refreshKey: number; onOpenChat: (listing: Listing) => void }) {
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/v1/marketplace/listings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setListings(data);
+      })
+      .catch((err) => console.error('Failed to fetch marketplace listings', err))
+      .finally(() => setLoading(false));
+  }, [refreshKey]);
+
+  if (loading) return <p style={{ textAlign: 'center', color: '#6B7280' }}>Loading marketplace listings from NeonDB...</p>;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#111827', margin: 0 }}>🛍️ CSULB Campus Marketplace Feed</h3>
+      </div>
+
+      {listings.length === 0 ? (
+        <p style={{ textAlign: 'center', color: '#6B7280', padding: '40px' }}>No marketplace listings found. Post the first one above!</p>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' }}>
+          {listings.map((item) => (
+            <div key={item.id} style={{ background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '1rem', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ height: '160px', background: '#F3F4F6' }}>
+                  {item.image_data ? (
+                    <img src={item.image_data} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9CA3AF', fontSize: '13px' }}>
+                      No Photo Available
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#111827' }}>{item.title}</h4>
+                    <span style={{ fontSize: '16px', fontWeight: '900', color: '#059669' }}>
+                      {Number(item.price) === 0 ? 'FREE' : `$${Number(item.price).toFixed(2)}`}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#4B5563', marginBottom: '12px' }}>{item.description}</p>
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', margin: 0 }}>Seller: {item.seller_email}</p>
+                </div>
+              </div>
+              <div style={{ padding: '0 16px 16px 16px' }}>
+                <button
+                  onClick={() => onOpenChat(item)}
+                  style={{ width: '100%', background: '#002B49', color: '#FFC72C', border: 'none', padding: '10px', borderRadius: '0.75rem', fontWeight: '800', cursor: 'pointer', fontSize: '14px' }}
+                >
+                  💬 Contact Seller
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Sub-component for OCR Schedule Image Upload
@@ -331,7 +1007,7 @@ export default function App() {
   const [requiresMFASetup, setRequiresMFASetup] = useState(false);
   const [mfaCodeInput, setMfaCodeInput] = useState('');
   const [mfaError, setMfaError] = useState('');
-  const [mfaEmail, setMfaEmail] = useState(''); // Track email for MFA verification
+  const [mfaEmail, setMfaEmail] = useState('');
 
   // Direct Email OTP flow states
   const [requiresEmailOtpInput, setRequiresEmailOtpInput] = useState(false);
@@ -349,37 +1025,74 @@ export default function App() {
   const [currentUserAccount, setCurrentUserAccount] = useState<UserAccount | null>(null);
 
   // Navigation & Form Toggle states
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'map' | 'indoor' | 'directory' | 'profile' | 'about'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'map' | 'indoor' | 'directory' | 'marketplace' | 'events' | 'rewards' | 'profile' | 'about'>('dashboard');
   const [showManualForm, setShowManualForm] = useState(false);
   const [showOcrUploader, setShowOcrUploader] = useState(false);
   const [showIcsUploader, setShowIcsUploader] = useState(false);
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
+  // Phase 2 state
+  const [showCreateListingForm, setShowCreateListingForm] = useState(false);
+  const [marketplaceRefreshKey, setMarketplaceRefreshKey] = useState(0);
+  const [activeChatListing, setActiveChatListing] = useState<Listing | null>(null);
+
   useEffect(() => {
     const storedToken = localStorage.getItem('sso_token');
-    if (storedToken) {
-      setToken(storedToken);
-    }
     const storedUser = localStorage.getItem('sso_user');
-    if (storedUser) {
-      try { 
-        const parsed = JSON.parse(storedUser);
-        // Purge stale or placeholder "Updated Name" from localStorage
-        if (!parsed.name || parsed.name === 'Updated Name') {
-          parsed.name = parsed.username || parsed.email?.split('@')[0] || 'Student';
-          localStorage.setItem('sso_user', JSON.stringify(parsed));
-        }
-        setUser(parsed);
-        if (parsed.email && parsed.role) {
-          setCurrentUserAccount({
-            email: parsed.email,
-            username: parsed.username || parsed.name || parsed.email.split('@')[0],
-            role: parsed.role,
-          });
-        }
-      } catch (e) {}
+
+    if (!storedToken || !storedUser) {
+      localStorage.removeItem('sso_token');
+      localStorage.removeItem('token');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(storedUser);
+      if (!parsed?.email) {
+        localStorage.removeItem('sso_token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('sso_user');
+        return;
+      }
+
+      if (!parsed.name || parsed.name === 'Updated Name') {
+        parsed.name = parsed.username || parsed.email.split('@')[0] || 'Student';
+        localStorage.setItem('sso_user', JSON.stringify(parsed));
+      }
+
+      setToken(storedToken);
+      setUser(parsed);
+      if (parsed.email && parsed.role) {
+        setCurrentUserAccount({
+          email: parsed.email,
+          username: parsed.username || parsed.name || parsed.email.split('@')[0],
+          role: parsed.role,
+        });
+      }
+    } catch {
+      localStorage.removeItem('sso_token');
+      localStorage.removeItem('token');
+      localStorage.removeItem('sso_user');
     }
   }, []);
+
+  const activeSession = getActiveMarketplaceSession();
+  const effectiveEmail = (user?.email || currentUserAccount?.email || activeSession?.email || '').trim().toLowerCase();
+  const effectiveRole = (user?.role || currentUserAccount?.role || activeSession?.role || '').trim();
+  const [userProfile, setUserProfile] = useState<UserGamificationProfile>(
+    rewardsEngine.getProfile(effectiveEmail || 'guest')
+  );
+
+  useEffect(() => {
+    const refreshPoints = () => {
+      if (effectiveEmail) {
+        setUserProfile({ ...rewardsEngine.getProfile(effectiveEmail) });
+      }
+    };
+    refreshPoints();
+    window.addEventListener('csulb:points-updated', refreshPoints);
+    return () => window.removeEventListener('csulb:points-updated', refreshPoints);
+  }, [effectiveEmail]);
 
   const syncAuthenticatedUser = (payload: any, fallbackEmail?: string) => {
     const tokenValue = payload?.token || payload?.accessToken;
@@ -417,7 +1130,6 @@ export default function App() {
     }
   };
 
-  // Handles response when user logs in or registers
   const handleLoginResponse = (data: any) => {
     const resolvedEmail = data?.email || data?.user?.email || data?.account?.email;
     if (resolvedEmail) {
@@ -492,6 +1204,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('token');
     localStorage.removeItem('sso_token');
     localStorage.removeItem('sso_user');
     setToken(null);
@@ -505,6 +1218,7 @@ export default function App() {
     setMfaEmail('');
     setCurrentUserAccount(null);
     setShowAuthModal(false);
+    setActiveChatListing(null);
   };
 
   const handleSyncSuccess = () => {
@@ -512,6 +1226,38 @@ export default function App() {
     setShowManualForm(false);
     setShowOcrUploader(false);
     setShowIcsUploader(false);
+  };
+
+  const handleOpenChat = (listing: Listing) => {
+    if (!effectiveEmail || !effectiveRole) {
+      alert('Both an email address and a role are required to access Marketplace Chat.');
+      return;
+    }
+    setActiveChatListing(listing);
+  };
+
+  const handleListingCreated = () => {
+    setShowCreateListingForm(false);
+    setMarketplaceRefreshKey((prev) => prev + 1);
+    if (effectiveEmail) {
+      setUserProfile({ ...rewardsEngine.getProfile(effectiveEmail) });
+    }
+  };
+
+  const handleRsvpUpdated = () => {
+    if (effectiveEmail) {
+      setUserProfile({ ...rewardsEngine.getProfile(effectiveEmail) });
+    }
+  };
+
+  const handleCheckoutItem = (itemId: string) => {
+    if (!effectiveEmail || !effectiveRole) {
+      alert('Please sign in with both an email address and an assigned role to redeem rewards.');
+      return;
+    }
+    const res = rewardsEngine.purchaseItem(effectiveEmail, itemId);
+    setUserProfile({ ...res.profile });
+    alert(res.message);
   };
 
   // Step 0: Render LoginPortal or Forgot Password View
@@ -707,7 +1453,6 @@ export default function App() {
         padding: '20px',
         fontFamily: 'system-ui, -apple-system, sans-serif'
       }}>
-        {/* University Logo & Title Header */}
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           {logoImage && (
             <div 
@@ -732,11 +1477,9 @@ export default function App() {
           </p>
         </div>
 
-        {/* Choice Selection Card */}
         <div style={{ width: '100%', maxWidth: '420px', background: '#FFFFFF', padding: '2.5rem', borderRadius: '1.25rem', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', textAlign: 'center', border: '1px solid #E5E7EB' }}>
           <p style={{ color: '#4B5563', fontSize: '15px', marginBottom: '24px', lineHeight: '1.5' }}>Select how you would like to receive your verification code.</p>
           
-          {/* Email Verification Code Option */}
           <button 
             onClick={() => {
               setRequiresMfaChoice(false);
@@ -747,7 +1490,6 @@ export default function App() {
             ✉️ Email Verification Code
           </button>
 
-          {/* Authenticator App Option */}
           <button 
             onClick={async () => {
               try {
@@ -813,6 +1555,8 @@ export default function App() {
           </button>
 
           <LoginWith2FA 
+            initialEmail={mfaEmail}
+            autoSendOtp={Boolean(mfaEmail)}
             onLoginSuccess={(data) => {
               syncAuthenticatedUser(data, data?.user?.email || mfaEmail);
               setRequiresEmailOtpInput(false);
@@ -862,6 +1606,35 @@ export default function App() {
     );
   }
 
+  // Active Seller Chat Modal View
+  if (activeChatListing) {
+    if (!effectiveEmail || !effectiveRole) {
+      return (
+        <div style={{ maxWidth: '520px', margin: '48px auto', background: '#FFFFFF', padding: '28px', borderRadius: '16px', border: '1px solid #E5E7EB', textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
+          <h3 style={{ margin: '0 0 10px 0', color: '#002B49' }}>Sign In Required (Email + Role)</h3>
+          <p style={{ color: '#4B5563', fontSize: '14px' }}>
+            Both an email address and a role are required to access Marketplace Chat.
+          </p>
+          <button
+            onClick={() => setActiveChatListing(null)}
+            style={{ background: '#002B49', color: '#FFC72C', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}
+          >
+            ← Back
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <SellerChatModal
+        listing={activeChatListing}
+        currentUserEmail={effectiveEmail}
+        currentUserRole={effectiveRole}
+        onBack={() => setActiveChatListing(null)}
+      />
+    );
+  }
+
   // Conditional Rendering: Main Dashboard & Tab Views
   return (
     <div style={{ 
@@ -902,12 +1675,11 @@ export default function App() {
           <div>
             <h1 style={{ margin: 0, color: '#111827', fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px' }}>CSULB Campus Resource Finder</h1>
             <p style={{ margin: '6px 0 0', color: '#4B5563', fontSize: '15px', fontWeight: '600' }}>
-              Welcome, {user?.name || user?.username || 'Student'} ({user?.email || currentUserAccount?.email || 'student@student.csulb.edu'})
+              Welcome, {user?.name || user?.username || 'Student'} ({effectiveEmail || 'student@student.csulb.edu'})
             </p>
           </div>
         </div>
 
-        {/* Action buttons */}
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button 
             onClick={() => setShowAuthModal(true)}
@@ -936,6 +1708,21 @@ export default function App() {
           >
             {showManualForm ? 'Close Form' : '✏️ Add'}
           </button>
+
+          {activeTab === 'marketplace' && (
+            <button
+              onClick={() => {
+                if (!effectiveEmail || !effectiveRole) {
+                  alert('Please sign in with both an email address and a role to create a listing.');
+                  return;
+                }
+                setShowCreateListingForm((prev) => !prev);
+              }}
+              style={{ padding: '10px 16px', background: '#FFC72C', color: '#002B49', border: 'none', borderRadius: '0.75rem', cursor: 'pointer', fontWeight: '900', fontSize: '13px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
+            >
+              {showCreateListingForm ? 'Close Listing Form' : '➕ Create Listing'}
+            </button>
+          )}
 
           <button 
             onClick={handleLogout}
@@ -983,6 +1770,24 @@ export default function App() {
           🤝 Basic Needs
         </button>
         <button 
+          onClick={() => setActiveTab('marketplace')}
+          style={{ padding: '10px 18px', background: activeTab === 'marketplace' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'marketplace' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+        >
+          🛍️ Marketplace
+        </button>
+        <button 
+          onClick={() => setActiveTab('events')}
+          style={{ padding: '10px 18px', background: activeTab === 'events' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'events' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+        >
+          🎉 Events & Clubs
+        </button>
+        <button 
+          onClick={() => setActiveTab('rewards')}
+          style={{ padding: '10px 18px', background: activeTab === 'rewards' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'rewards' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
+        >
+          🏆 Rewards ({userProfile.points} PTS)
+        </button>
+        <button 
           onClick={() => setActiveTab('profile')}
           style={{ padding: '10px 18px', background: activeTab === 'profile' ? '#FFC72C' : '#FFFFFF', color: activeTab === 'profile' ? '#111827' : '#4B5563', border: '1px solid #D1D5DB', borderRadius: '0.75rem', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }}
         >
@@ -1003,6 +1808,28 @@ export default function App() {
         {activeTab === 'map' && <CampusMap />}
         {activeTab === 'indoor' && <IndoorNavigator />}
         {activeTab === 'directory' && <BasicNeedsDirectory />}
+        {activeTab === 'marketplace' && (
+          <>
+            {showCreateListingForm && effectiveEmail && effectiveRole && (
+              <CreateListingFormWithPhoto
+                defaultSellerEmail={effectiveEmail}
+                currentUserRole={effectiveRole}
+                onBack={() => setShowCreateListingForm(false)}
+                onPostSuccess={handleListingCreated}
+              />
+            )}
+            <PostgresMarketplaceFeed refreshKey={marketplaceRefreshKey} onOpenChat={handleOpenChat} />
+          </>
+        )}
+        {activeTab === 'events' && (
+          <CampusEventsAndClubsView
+            currentUserEmail={effectiveEmail || 'guest@student.csulb.edu'}
+            onRsvpSuccess={handleRsvpUpdated}
+          />
+        )}
+        {activeTab === 'rewards' && (
+          <RewardsShopView profile={userProfile} onCheckout={handleCheckoutItem} />
+        )}
         {activeTab === 'profile' && <ProfilePage onUpdate={(updated) => {
           setUser((prev: any) => {
             const updatedUser = { ...prev, name: updated.name };

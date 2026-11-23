@@ -1,17 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface LoginWith2FAProps {
+  initialEmail?: string;
+  autoSendOtp?: boolean;
   onLoginSuccess?: (data: { token: string; user: any }) => void;
 }
 
-export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) => {
+export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({
+  initialEmail = '',
+  autoSendOtp = false,
+  onLoginSuccess,
+}) => {
+  const normalizedInitialEmail = initialEmail.trim().toLowerCase();
   const [isRegistering, setIsRegistering] = useState(false);
-  const [step, setStep] = useState<'login' | 'verify'>('login');
+  const [step, setStep] = useState<'login' | 'verify'>(
+    normalizedInitialEmail && autoSendOtp ? 'verify' : 'login'
+  );
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(normalizedInitialEmail);
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const sentInitialCodeRef = useRef(false);
 
   // Helper fetch function using relative paths to work with Vite proxy
   const apiFetch = async (path: string, options: RequestInit) => {
@@ -22,12 +33,60 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
     return res;
   };
 
+  const sendEmailOtp = async (targetEmail: string, showAlertOnError = true) => {
+    const cleanEmail = targetEmail.trim().toLowerCase();
+    if (!cleanEmail) return false;
+
+    try {
+      let res = await apiFetch('/auth/resend-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+
+      if (res.status === 404) {
+        res = await apiFetch('/auth/send-2fa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, method: 'email' }),
+        });
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setStatusMessage(data.message || `Verification code sent to ${cleanEmail}.`);
+        return true;
+      } else if (showAlertOnError) {
+        alert(data.error || data.detail || 'Could not send verification code.');
+      }
+    } catch (err) {
+      console.error('Send OTP error:', err);
+      if (showAlertOnError) {
+        alert('Failed to connect to the authentication server.');
+      }
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (normalizedInitialEmail) {
+      setEmail(normalizedInitialEmail);
+    }
+    if (normalizedInitialEmail && autoSendOtp && !sentInitialCodeRef.current) {
+      sentInitialCodeRef.current = true;
+      setStep('verify');
+      sendEmailOtp(normalizedInitialEmail, false);
+    }
+  }, [normalizedInitialEmail, autoSendOtp]);
+
   // Handle Registration or Login submission to trigger OTP / session
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setStatusMessage(null);
 
-    if (!email.endsWith('@student.csulb.edu')) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.endsWith('@student.csulb.edu')) {
       alert('Access restricted to valid @student.csulb.edu accounts.');
       setLoading(false);
       return;
@@ -35,14 +94,14 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
 
     try {
       const path = isRegistering ? '/auth/register' : '/auth/login';
-      const payload = isRegistering 
-        ? { email, username: name || email.split('@')[0], password, role: 'Student Buyer' }
-        : { email, password };
+      const payload = isRegistering
+        ? { email: cleanEmail, username: name || cleanEmail.split('@')[0], password, role: 'Student Buyer' }
+        : { email: cleanEmail, password };
 
       const res = await apiFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -53,7 +112,7 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
           setIsRegistering(false);
           setPassword('');
         } else {
-          // FORCE the view to switch to the 6-digit OTP verification screen
+          setEmail(cleanEmail);
           setStep('verify');
         }
       } else {
@@ -73,10 +132,11 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
     setLoading(true);
 
     try {
+      const cleanEmail = email.trim().toLowerCase();
       const res = await apiFetch('/auth/verify-2fa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp })
+        body: JSON.stringify({ email: cleanEmail, otp }),
       });
 
       const data = await res.json();
@@ -102,22 +162,22 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
 
   // Resend OTP code handler
   const handleResendCode = async () => {
-    try {
-      const res = await apiFetch('/auth/resend-2fa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const data = await res.json();
-      alert(data.message || data.error || 'Code resent.');
-    } catch (err) {
-      console.error('Resend error:', err);
-      alert('Failed to resend verification code.');
-    }
+    await sendEmailOtp(email, true);
   };
 
   return (
-    <div style={{ maxWidth: '420px', margin: '60px auto', background: '#FFF', padding: '32px', borderRadius: '16px', border: '1.5px solid #E5E7EB', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div
+      style={{
+        maxWidth: '420px',
+        margin: '60px auto',
+        background: '#FFF',
+        padding: '32px',
+        borderRadius: '16px',
+        border: '1.5px solid #E5E7EB',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      }}
+    >
       {step === 'login' ? (
         <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <h2 style={{ color: '#002B49', fontWeight: '900', margin: '0 0 4px 0' }}>
@@ -130,50 +190,61 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
           {isRegistering && (
             <div>
               <label style={{ fontSize: '13px', fontWeight: '800', color: '#374151' }}>Full Name</label>
-              <input 
-                type="text" 
-                value={name} 
-                onChange={e => setName(e.target.value)} 
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Nadhirah Michael-Ho"
-                required 
-                style={inputStyle} 
+                required
+                style={inputStyle}
               />
             </div>
           )}
-          
+
           <div>
             <label style={{ fontSize: '13px', fontWeight: '800', color: '#374151' }}>CSULB Email Address</label>
-            <input 
-              type="email" 
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="username@student.csulb.edu"
-              required 
-              style={inputStyle} 
+              required
+              style={inputStyle}
             />
           </div>
 
           <div>
             <label style={{ fontSize: '13px', fontWeight: '800', color: '#374151' }}>Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              required 
-              style={inputStyle} 
+              required
+              style={inputStyle}
             />
           </div>
 
           <button type="submit" disabled={loading} style={buttonStyle}>
-            {loading ? 'Processing...' : (isRegistering ? 'Register Account' : 'Continue to Verification')}
+            {loading ? 'Processing...' : isRegistering ? 'Register Account' : 'Continue to Verification'}
           </button>
 
           <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            <button 
-              type="button" 
-              onClick={() => { setIsRegistering(!isRegistering); setPassword(''); }} 
-              style={{ background: 'transparent', border: 'none', color: '#002B49', fontWeight: '800', cursor: 'pointer', fontSize: '13px', textDecoration: 'underline' }}
+            <button
+              type="button"
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                setPassword('');
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#002B49',
+                fontWeight: '800',
+                cursor: 'pointer',
+                fontSize: '13px',
+                textDecoration: 'underline',
+              }}
             >
               {isRegistering ? 'Already have an account? Sign In' : 'New student? Register an account'}
             </button>
@@ -182,20 +253,26 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
       ) : (
         <form onSubmit={handleVerifySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <h2 style={{ color: '#002B49', fontWeight: '900', margin: '0 0 4px 0' }}>Two-Factor Authentication</h2>
-          <p style={{ fontSize: '14px', color: '#4B5563', margin: '0 0 12px 0' }}>
+          <p style={{ fontSize: '14px', color: '#4B5563', margin: '0 0 8px 0' }}>
             We’ve sent a 6-digit verification code to <strong>{email}</strong>. This code expires in 5 minutes.
           </p>
+          {statusMessage && (
+            <p style={{ fontSize: '12px', color: '#059669', fontWeight: 700, margin: '0 0 8px 0' }}>
+              {statusMessage}
+            </p>
+          )}
 
           <div>
             <label style={{ fontSize: '13px', fontWeight: '800', color: '#374151' }}>Enter 6-Digit Code</label>
-            <input 
-              type="text" 
-              maxLength={6} 
-              value={otp} 
-              onChange={e => setOtp(e.target.value)} 
-              placeholder="123456" 
-              required 
-              style={{ ...inputStyle, letterSpacing: '6px', textAlign: 'center', fontSize: '20px', fontWeight: 'bold' }} 
+            <input
+              type="text"
+              maxLength={6}
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="123456"
+              autoFocus
+              required
+              style={{ ...inputStyle, letterSpacing: '6px', textAlign: 'center', fontSize: '20px', fontWeight: 'bold' }}
             />
           </div>
 
@@ -204,17 +281,31 @@ export const LoginWith2FA: React.FC<LoginWith2FAProps> = ({ onLoginSuccess }) =>
           </button>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-            <button 
-              type="button" 
-              onClick={() => setStep('login')} 
-              style={{ background: 'transparent', border: 'none', color: '#4B5563', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+            <button
+              type="button"
+              onClick={() => setStep('login')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#4B5563',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontSize: '13px',
+              }}
             >
-              ← Back to login
+              ← Change email
             </button>
-            <button 
-              type="button" 
-              onClick={handleResendCode} 
-              style={{ background: 'transparent', border: 'none', color: '#002B49', fontWeight: '900', cursor: 'pointer', fontSize: '13px' }}
+            <button
+              type="button"
+              onClick={handleResendCode}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#002B49',
+                fontWeight: '900',
+                cursor: 'pointer',
+                fontSize: '13px',
+              }}
             >
               Resend code
             </button>
@@ -233,7 +324,7 @@ const inputStyle: React.CSSProperties = {
   background: '#F9FAFB',
   fontSize: '14px',
   marginTop: '6px',
-  boxSizing: 'border-box'
+  boxSizing: 'border-box',
 };
 
 const buttonStyle: React.CSSProperties = {
@@ -246,5 +337,5 @@ const buttonStyle: React.CSSProperties = {
   fontSize: '15px',
   cursor: 'pointer',
   marginTop: '8px',
-  transition: 'background 0.2s'
+  transition: 'background 0.2s',
 };
