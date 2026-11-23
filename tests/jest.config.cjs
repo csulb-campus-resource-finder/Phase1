@@ -5,7 +5,8 @@ const config = {
   testEnvironment: 'node',
 
   testMatch: [
-    '<rootDir>/tests/**/*.test.ts'
+    '<rootDir>/tests/**/*.test.ts',
+    '<rootDir>/src/__tests__/**/*.test.ts'
   ],
 
   moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
