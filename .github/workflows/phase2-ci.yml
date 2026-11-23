@@ -37,7 +37,31 @@ jobs:
       - name: Run Jest tests
         env:
           NODE_OPTIONS: --experimental-vm-modules
-        run: npm test
+          PORT: '3001'
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test:test@localhost:5432/test_db?schema=public' }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-jwt-secret' }}
+        run: |
+          ./node_modules/.bin/tsx src/server.ts > /tmp/server.log 2>&1 &
+          SERVER_PID=$!
 
-      - name: Build Phase 2 frontend (Vite)
-        run: npm run build
+          for i in $(seq 1 30); do
+            if curl -s -o /dev/null http://127.0.0.1:3001/; then
+              break
+            fi
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "Server exited early. Server logs:"
+              cat /tmp/server.log
+              exit 1
+            fi
+            sleep 0.5
+          done
+
+          npm test
+          TEST_EXIT=$?
+
+          kill $SERVER_PID 2>/dev/null || true
+          if [ $TEST_EXIT -ne 0 ]; then
+            echo "Server logs:"
+            cat /tmp/server.log
+            exit $TEST_EXIT
+          fi
